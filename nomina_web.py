@@ -169,4 +169,240 @@ if modulo == "Nómina Periódica":
             base = alt.Chart(source).encode(theta=alt.Theta("Monto", stack=True))
             pie = base.mark_arc(innerRadius=70, outerRadius=110).encode(
                 color=alt.Color("Cat", scale=alt.Scale(range=['#34d399', '#60a5fa', '#fbbf24']), legend=alt.Legend(orient="bottom", titleColor="white", labelColor="white")),
-                tooltip=["Cat", alt.Tooltip("Monto", format="$,
+                tooltip=["Cat", alt.Tooltip("Monto", format="$,.2f")]
+            ).configure_view(strokeWidth=0).configure(background='transparent')
+            st.altair_chart(pie, use_container_width=True)
+        with col_i:
+            horas = dias_pago * 8
+            valor_hora = neto / horas
+            meses_gob = ((isr+imss)/bruto) * 12
+            anual = neto * (365/dias_pago)
+            st.markdown(f"""
+            <div class="insight-card" style="border-left-color: #34d399;">
+                <span style="color:#94a3b8; font-weight:700;">💰 TU HORA REAL</span><br>
+                <span style="color:#cbd5e1;">Realmente ganas:</span> <span style="font-size:1.5em; font-weight:800; color:#34d399;">${valor_hora:.2f} MXN</span>/hora.
+            </div>
+            <div class="insight-card" style="border-left-color: #f87171;">
+                <span style="color:#94a3b8; font-weight:700;">🏛️ CARGA LABORAL</span><br>
+                <span style="color:#cbd5e1;">Trabajas:</span> <span style="font-size:1.5em; font-weight:800; color:#f87171;">{meses_gob:.1f} meses</span> al año para impuestos.
+            </div>
+            """)
+    with t2:
+        st.dataframe(pd.DataFrame([{"Paso": "ISR Periodo", "Valor": f"${isr:,.2f}"}]), use_container_width=True, hide_index=True)
+
+
+# ==============================================================================
+# MÓDULO 2: AGUINALDO (MEJORADO)
+# ==============================================================================
+elif modulo == "Aguinaldo":
+    with st.sidebar:
+        st.header("🎄 Aguinaldo 2026")
+        with st.container(border=True):
+            sueldo_mensual = st.number_input("Sueldo Mensual Bruto", 15000.0, step=500.0)
+            dias_ley = st.number_input("Días de Prestación (Ley=15)", 15)
+            
+        with st.container(border=True):
+            st.markdown("##### 🗓️ Cálculo de Días")
+            # AUTOMATIZACIÓN DE DÍAS
+            calculo_tipo = st.radio("Periodo a pagar", ["Año Completo (2026)", "Proporcional (Ingresé este año)"])
+            
+            if calculo_tipo == "Proporcional (Ingresé este año)":
+                f_ingreso_ag = st.date_input("Fecha de Ingreso", date(2026, 6, 1))
+                f_fin_anio = date(2026, 12, 31)
+                dias_trabajados = (f_fin_anio - f_ingreso_ag).days + 1
+            else:
+                dias_trabajados = 365
+                
+        st.button("CALCULAR AGUINALDO", type="primary", use_container_width=True)
+
+    # LÓGICA
+    sd = sueldo_mensual / 30
+    aguinaldo_bruto = (dias_trabajados/365) * dias_ley * sd
+    exento = 30 * VALORES_2026["UMA"]
+    gravado = max(0, aguinaldo_bruto - exento)
+    
+    # ISR Marginal (Método Art 174 simplificado para dashboard)
+    isr_base, _ = calcular_isr_engine(sueldo_mensual, TABLA_ISR_MENSUAL)
+    isr_total, _ = calcular_isr_engine(sueldo_mensual + gravado, TABLA_ISR_MENSUAL)
+    isr_retener = isr_total - isr_base
+    neto = aguinaldo_bruto - isr_retener
+
+    st.markdown("### 🎄 Resultado de Aguinaldo")
+    st.markdown(f"Días Proporcionales calculados: **{dias_trabajados} días laborados** = **{(dias_trabajados/365)*dias_ley:.2f} días de pago**.")
+    
+    k1, k2, k3 = st.columns(3)
+    with k1: st.markdown(f"""<div class="dark-card"><div class="kpi-label">Monto Bruto</div><div class="kpi-value">${aguinaldo_bruto:,.2f}</div></div>""", unsafe_allow_html=True)
+    with k2: st.markdown(f"""<div class="dark-card"><div class="kpi-label">ISR (Retención)</div><div class="kpi-value neon-red">-${isr_retener:,.2f}</div></div>""", unsafe_allow_html=True)
+    with k3: st.markdown(f"""<div class="dark-card" style="border: 1px solid #34d399;"><div class="kpi-label neon-green">Neto Final</div><div class="kpi-value neon-green">${neto:,.2f}</div></div>""", unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    col_det, col_vis = st.columns([2, 1])
+    with col_det:
+        st.markdown("#### 📋 Desglose Fiscal")
+        df_agui = pd.DataFrame([
+            {"Concepto": "Aguinaldo Devengado", "Monto": aguinaldo_bruto, "Tipo": "Ingreso"},
+            {"Concepto": "(-) Exento (30 UMA)", "Monto": min(exento, aguinaldo_bruto), "Tipo": "Beneficio"},
+            {"Concepto": "(=) Base Gravable", "Monto": gravado, "Tipo": "Base Impuesto"},
+            {"Concepto": "(-) ISR a Retener", "Monto": isr_retener, "Tipo": "Deducción"},
+            {"Concepto": "(=) NETO A PAGAR", "Monto": neto, "Tipo": "Total"}
+        ])
+        st.dataframe(df_agui.style.format({"Monto": "${:,.2f}"}), use_container_width=True, hide_index=True)
+        
+    with col_vis:
+        st.markdown("#### 💡 ¿Sabías qué?")
+        st.info(f"El SAT te 'regala' libres de impuestos hasta 30 UMAS (${exento:,.2f}). Como tu aguinaldo fue de ${aguinaldo_bruto:,.2f}, solo pagaste impuestos por la diferencia (${gravado:,.2f}).")
+
+
+# ==============================================================================
+# MÓDULO 3: FINIQUITO Y LIQUIDACIÓN (RENOVADO)
+# ==============================================================================
+elif modulo == "Finiquito y Liquidación":
+    with st.sidebar:
+        st.header("⚖️ Cálculo de Salida")
+        with st.container(border=True):
+            causa = st.selectbox("Motivo", ["Renuncia Voluntaria", "Despido Injustificado"])
+            f_alta = st.date_input("Fecha Alta", date(2022, 1, 1))
+            f_baja = st.date_input("Fecha Baja", date.today())
+            sueldo_men = st.number_input("Sueldo Mensual Bruto", 25000.0)
+
+        with st.container(border=True):
+            st.markdown("##### Prestaciones Pendientes")
+            # AUTOMATIZACIÓN DE DÍAS AGUINALDO
+            # Calculamos días transcurridos en el año de baja
+            inicio_anio_baja = date(f_baja.year, 1, 1)
+            # Si entró este año, usamos fecha alta, si no, 1 de enero
+            fecha_inicio_calculo = max(f_alta, inicio_anio_baja)
+            dias_trabajados_anio = (f_baja - fecha_inicio_calculo).days + 1
+            
+            dias_aguinaldo_ley = 15
+            prop_dias_aguinaldo = (dias_trabajados_anio / 365) * dias_aguinaldo_ley
+            
+            st.info(f"📅 Días trabajados año actual: {dias_trabajados_anio}")
+            st.info(f"🎁 Días aguinaldo proporcionales: {prop_dias_aguinaldo:.2f}")
+            
+            # Input editable por si la empresa da más días, pero prellenado con lo calculado
+            dias_vac_pend = st.number_input("Días Vacaciones Pendientes", value=6.0)
+
+        st.button("CALCULAR LIQUIDACIÓN", type="primary", use_container_width=True)
+
+    # 1. CÁLCULOS BASE
+    antiguedad_dias = (f_baja - f_alta).days + 1
+    anios_completos = antiguedad_dias // 365
+    sd = sueldo_men / 30
+    
+    # SDI
+    dias_vac_antig = 14 if anios_completos >= 1 else 12
+    factor_int = 1 + ((15 + (dias_vac_antig*0.25))/365)
+    sdi = sd * factor_int
+
+    # 2. FINIQUITO
+    # Aguinaldo
+    monto_aguinaldo = prop_dias_aguinaldo * sd
+    # Vacaciones
+    monto_vac = dias_vac_pend * sd
+    monto_prima_vac = monto_vac * 0.25
+    # Prima Antigüedad
+    tope_prima = 2 * VALORES_2026["SALARIO_MINIMO"]
+    base_prima = min(sd, tope_prima)
+    prima_antiguedad = 0
+    
+    if causa == "Despido Injustificado" or anios_completos >= 15:
+        prima_antiguedad = (antiguedad_dias / 365) * 12 * base_prima
+
+    # 3. LIQUIDACIÓN
+    indemnizacion = 0
+    veinte_dias = 0
+    if causa == "Despido Injustificado":
+        indemnizacion = 3 * 30 * sdi
+        veinte_dias = 20 * (antiguedad_dias / 365) * sdi
+
+    # 4. IMPUESTOS INTEGRADOS (LA MAGIA)
+    # Función auxiliar para calcular ISR de un concepto específico
+    def get_isr_proportion(monto, exento, isr_rate_marginal):
+        gravado = max(0, monto - exento)
+        return gravado * isr_rate_marginal
+
+    # Obtenemos tasa marginal aproximada del sueldo mensual para aplicar a finiquito
+    _, desglose_isr_men = calcular_isr_engine(sueldo_men, TABLA_ISR_MENSUAL)
+    tasa_marginal = desglose_isr_men["Tasa"] # Simplificación válida para dashboard
+
+    # Exenciones
+    ex_agui = min(monto_aguinaldo, 30*VALORES_2026["UMA"])
+    ex_pv = min(monto_prima_vac, 15*VALORES_2026["UMA"])
+    ex_vac = 0 # 100% gravado
+    # Prima Antigüedad e Indemnizaciones tienen exención de 90 UMAS x Año
+    tope_90_umas = 90 * VALORES_2026["UMA"] * anios_completos
+    
+    total_separacion = prima_antiguedad + indemnizacion + veinte_dias
+    ex_separacion = min(total_separacion, tope_90_umas)
+    
+    # Cálculo ISR
+    # 1. Finiquito (Usa Tasa Marginal o sumar al ingreso) -> Usamos Tasa efectiva del mes para simplificar vista
+    gravado_finiquito = (monto_aguinaldo - ex_agui) + (monto_prima_vac - ex_pv) + monto_vac
+    isr_finiquito = gravado_finiquito * tasa_marginal
+    
+    # 2. Liquidación (Tasa Efectiva Anual Art 96)
+    gravado_separacion = total_separacion - ex_separacion
+    # Tasa efectiva del último sueldo ordinario
+    isr_mes_ordinario, _ = calcular_isr_engine(sueldo_men, TABLA_ISR_MENSUAL)
+    tasa_efectiva_sep = isr_mes_ordinario / sueldo_men
+    isr_separacion = gravado_separacion * tasa_efectiva_sep
+    
+    total_pagar = (total_separacion + monto_aguinaldo + monto_vac + monto_prima_vac)
+    total_isr = isr_finiquito + isr_separacion
+    total_neto = total_pagar - total_isr
+
+    # DASHBOARD
+    st.markdown(f"### ⚖️ Hoja de Liquidación: {causa}")
+    
+    k1, k2, k3 = st.columns(3)
+    with k1: st.markdown(f"""<div class="dark-card"><div class="kpi-label">Gran Total Bruto</div><div class="kpi-value">${total_pagar:,.2f}</div></div>""", unsafe_allow_html=True)
+    with k2: st.markdown(f"""<div class="dark-card"><div class="kpi-label">ISR Total</div><div class="kpi-value neon-red">-${total_isr:,.2f}</div></div>""", unsafe_allow_html=True)
+    with k3: st.markdown(f"""<div class="dark-card" style="border: 1px solid #34d399;"><div class="kpi-label neon-green">Neto a Entregar</div><div class="kpi-value neon-green">${total_neto:,.2f}</div></div>""", unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # TABLA CONSOLIDADA (LO QUE PEDISTE)
+    st.markdown("#### 📋 Desglose Detallado por Concepto")
+    
+    detalle_data = [
+        {"Concepto": "Aguinaldo Proporcional", "Bruto": monto_aguinaldo, "Exento": ex_agui, "Gravado": monto_aguinaldo-ex_agui, "ISR Aprox": (monto_aguinaldo-ex_agui)*tasa_marginal},
+        {"Concepto": "Vacaciones Pendientes", "Bruto": monto_vac, "Exento": 0, "Gravado": monto_vac, "ISR Aprox": monto_vac*tasa_marginal},
+        {"Concepto": "Prima Vacacional", "Bruto": monto_prima_vac, "Exento": ex_pv, "Gravado": monto_prima_vac-ex_pv, "ISR Aprox": (monto_prima_vac-ex_pv)*tasa_marginal},
+        {"Concepto": "Prima Antigüedad", "Bruto": prima_antiguedad, "Exento": 0, "Gravado": 0, "ISR Aprox": 0}, # Se suma abajo a separación
+        {"Concepto": "Indemnización (3M + 20D)", "Bruto": indemnizacion+veinte_dias, "Exento": 0, "Gravado": 0, "ISR Aprox": 0}, # Se suma abajo
+    ]
+    
+    # Ajuste para visualización de Separación (Prima + Indemnización juntas en exención)
+    separacion_bruto = prima_antiguedad + indemnizacion + veinte_dias
+    
+    df_detalle = pd.DataFrame(detalle_data)
+    
+    # Fila especial para Pagos por Separación (Liquidación)
+    if separacion_bruto > 0:
+        row_sep = {
+            "Concepto": "TOTAL PAGOS SEPARACIÓN (Liq + Antig)", 
+            "Bruto": separacion_bruto, 
+            "Exento": ex_separacion, 
+            "Gravado": gravado_separacion, 
+            "ISR Aprox": isr_separacion
+        }
+        # Quitamos las filas individuales de prima e indem para no duplicar visualmente en la tabla de impuestos
+        df_detalle = df_detalle[~df_detalle['Concepto'].isin(['Prima Antigüedad', 'Indemnización (3M + 20D)'])]
+        df_detalle = pd.concat([df_detalle, pd.DataFrame([row_sep])], ignore_index=True)
+
+    # Columna Neto
+    df_detalle["Neto"] = df_detalle["Bruto"] - df_detalle["ISR Aprox"]
+    
+    # Formato
+    st.dataframe(
+        df_detalle.style.format({
+            "Bruto": "${:,.2f}", "Exento": "${:,.2f}", "Gravado": "${:,.2f}", "ISR Aprox": "${:,.2f}", "Neto": "${:,.2f}"
+        }), 
+        use_container_width=True, 
+        hide_index=True
+    )
+    
+    if separacion_bruto > 0:
+         st.caption(f"Nota: Los pagos por separación (Prima Antigüedad e Indemnización) tienen una exención global de 90 UMAS por año de servicio (${tope_90_umas:,.2f}). El ISR se calcula con Tasa Efectiva.")
