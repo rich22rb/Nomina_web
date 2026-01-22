@@ -6,23 +6,19 @@ import requests
 from bs4 import BeautifulSoup
 import json
 
-st.set_page_config(page_title="Nómina Online IA", page_icon="🌐", layout="wide")
+st.set_page_config(page_title="Nómina 2026: Desglose Total", page_icon="🧾", layout="wide")
 
-# --- 1. AUTENTICACIÓN ---
-try:
-    # Intenta leer la llave de los secretos (para la nube)
-    if "GOOGLE_API_KEY" in st.secrets:
-        genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-        api_ok = True
-    else:
-        # Si estás en local y no tienes secrets, intenta buscarla manual o avisa
-        api_ok = False
-except:
-    api_ok = False
+# --- 1. DATOS OFICIALES 2026 ---
+# Fuente: Proyecciones Económicas y CONASAMI
+VALORES_2026 = {
+    "UMA_DIARIA": 117.31,        #
+    "SALARIO_MINIMO": 315.04,    # Zona General
+    "SALARIO_MINIMO_FN": 440.87, # Zona Frontera
+    "TOPE_IMSS_UMAS": 25
+}
 
-# --- 2. DATOS POR DEFECTO (Respaldo 2025) ---
-# Usamos esto si no hay internet o falla la IA
-TABLA_DEFAULT = [
+# Tabla ISR (Anexo 8 vigente)
+TABLA_ISR_MENSUAL = [
     [0.01, 0.00, 0.0192],
     [746.05, 14.32, 0.0640],
     [6332.06, 371.83, 0.1088],
@@ -36,154 +32,215 @@ TABLA_DEFAULT = [
     [375975.62, 117912.32, 0.3500]
 ]
 
-if "tabla_isr" not in st.session_state:
-    st.session_state["tabla_isr"] = TABLA_DEFAULT
-    st.session_state["fuente"] = "Datos Default (2025)"
+# --- 2. FUNCIONES DE CÁLCULO DETALLADO ---
 
-# --- 3. LÓGICA DE AGENTE WEB (Extracción con IA) ---
-def obtener_tablas_desde_web(url):
-    """Descarga una web, extrae texto y usa IA para hallar la tabla"""
-    try:
-        # A. Bajar el contenido de la web simulando ser un navegador
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-        
-        # B. Limpiar la basura HTML
-        soup = BeautifulSoup(response.content, 'html.parser')
-        # Borramos menús y scripts para que la IA lea solo el contenido
-        for script in soup(["script", "style", "nav", "footer"]):
-            script.extract()
-        texto_limpio = soup.get_text(separator=' ', strip=True)[:12000] # Leemos los primeros 12k caracteres
-        
-        # C. Instrucciones para Gemini
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        prompt = f"""
-        Analiza el siguiente texto de una página web fiscal de México.
-        
-        OBJETIVO: Encuentra la "Tarifa aplicable para el cálculo de los pagos provisionales mensuales" (Tabla ISR Mensual).
-        
-        SALIDA OBLIGATORIA: Un JSON válido (lista de listas).
-        Formato: [[Limite_Inferior, Cuota_Fija, Porcentaje_Decimal], ...]
-        Ejemplo: [[0.01, 0.0, 0.0192], [746.04, 14.32, 0.0640]]
-        
-        IMPORTANTE: 
-        - Convierte porcentajes a decimal (ej: 30% -> 0.30).
-        - Extrae SOLO la tabla MENSUAL (ignora anual, quincenal, subsidio).
-        
-        TEXTO WEB:
-        {texto_limpio}
-        """
-        
-        respuesta = model.generate_content(prompt)
-        
-        # D. Convertir respuesta de texto a datos reales
-        json_str = respuesta.text.replace("```json", "").replace("```", "").strip()
-        tabla_nueva = json.loads(json_str)
-        
-        # Validación simple: Si la tabla tiene más de 5 renglones, es válida
-        if len(tabla_nueva) > 5:
-            return tabla_nueva
-        else:
-            return None
-
-    except Exception as e:
-        st.error(f"Error leyendo la web: {e}")
-        return None
-
-def calcular_nomina(bruto, periodo, tabla):
-    # Paso 1: Convertir todo a MENSUAL
-    factor = 30.4 if periodo == "Diario" else (2 if periodo == "Quincenal" else 1)
-    if periodo == "Semanal": factor = 30.4 / 7
+def obtener_factor_integracion(anios):
+    # Tabla Vacaciones Dignas
+    if anios == 0: dias_vac = 12
+    elif anios == 1: dias_vac = 12
+    elif anios == 2: dias_vac = 14
+    elif anios == 3: dias_vac = 16
+    elif anios == 4: dias_vac = 18
+    elif 5 <= anios <= 9: dias_vac = 20
+    elif 10 <= anios <= 14: dias_vac = 22
+    elif 15 <= anios <= 19: dias_vac = 24
+    else: dias_vac = 26
     
-    sueldo_mensual = bruto * factor
+    dias_aguinaldo = 15
+    prima_vacacional = 0.25
     
-    # Paso 2: Calcular ISR usando la tabla activa
+    # Cálculo del Factor
+    numerador = dias_aguinaldo + (dias_vac * prima_vacacional)
+    factor = 1 + (numerador / 365)
+    
+    return factor, dias_vac, dias_aguinaldo
+
+def calcular_desglose_imss(sbc, dias_trabajados):
+    """Calcula cuotas obreras concepto por concepto"""
+    uma = VALORES_2026["UMA_DIARIA"]
+    
+    # 1. Enfermedades y Maternidad (Exc. 3 UMA)
+    base_exc = max(0, sbc - (3 * uma))
+    cuota_exc = base_exc * 0.004 * dias_trabajados
+    
+    # 2. Prestaciones en Dinero (0.25%)
+    cuota_dinero = sbc * 0.0025 * dias_trabajados
+    
+    # 3. Gastos Médicos Pensionados (0.375%)
+    cuota_gmp = sbc * 0.00375 * dias_trabajados
+    
+    # 4. Invalidez y Vida (0.625%)
+    cuota_iv = sbc * 0.00625 * dias_trabajados
+    
+    # 5. Cesantía y Vejez (1.125%)
+    cuota_cv = sbc * 0.01125 * dias_trabajados
+    
+    total = cuota_exc + cuota_dinero + cuota_gmp + cuota_iv + cuota_cv
+    
+    # Crear DataFrame para visualización
+    df = pd.DataFrame({
+        "Rama del Seguro": [
+            "Enf. y Mat. (Excedente)", 
+            "Prestaciones en Dinero", 
+            "Gastos Médicos Pens.", 
+            "Invalidez y Vida", 
+            "Cesantía y Vejez"
+        ],
+        "Base de Cálculo": [
+            f"${base_exc:,.2f}" if base_exc > 0 else "N/A", 
+            f"${sbc:,.2f}", 
+            f"${sbc:,.2f}", 
+            f"${sbc:,.2f}", 
+            f"${sbc:,.2f}"
+        ],
+        "Tasa (%)": ["0.400%", "0.250%", "0.375%", "0.625%", "1.125%"],
+        "Importe a Pagar": [cuota_exc, cuota_dinero, cuota_gmp, cuota_iv, cuota_cv]
+    })
+    return total, df
+
+def calcular_desglose_isr(base_gravable):
+    """Calcula el ISR y devuelve el procedimiento paso a paso"""
     limite, cuota, porc = 0, 0, 0
-    for row in tabla:
-        if sueldo_mensual >= row[0]:
+    for row in TABLA_ISR_MENSUAL:
+        if base_gravable >= row[0]:
             limite, cuota, porc = row[0], row[1], row[2]
         else:
             break
             
-    isr_mensual = ((sueldo_mensual - limite) * porc) + cuota
+    excedente = base_gravable - limite
+    impuesto_marginal = excedente * porc
+    isr_determinado = impuesto_marginal + cuota
     
-    # Paso 3: Calcular IMSS (Estimado)
-    imss_mensual = sueldo_mensual * 0.027
-    if imss_mensual > 18000: imss_mensual = 18000 # Tope de ley aprox
-    
-    # Paso 4: Regresar al periodo original
-    return {
-        "Bruto": bruto,
-        "ISR": isr_mensual / factor,
-        "IMSS": imss_mensual / factor,
-        "Neto": bruto - (isr_mensual/factor) - (imss_mensual/factor)
-    }
+    df = pd.DataFrame({
+        "Concepto": [
+            "1. Base Gravable Mensual", 
+            "2. (-) Límite Inferior", 
+            "3. (=) Excedente", 
+            "4. (x) Tasa s/ Excedente", 
+            "5. (=) Impuesto Marginal", 
+            "6. (+) Cuota Fija", 
+            "7. (=) ISR Determinado"
+        ],
+        "Monto": [
+            base_gravable, 
+            limite, 
+            excedente, 
+            porc, # Este formato lo arreglaremos en visualización
+            impuesto_marginal, 
+            cuota, 
+            isr_determinado
+        ]
+    })
+    return isr_determinado, df
 
-# --- 4. INTERFAZ VISUAL ---
-st.title("🌐 Nómina Inteligente (Online)")
+# --- 3. INTERFAZ GRÁFICA ---
+st.title("🧾 Nómina 2026: Desglose Analítico")
+st.markdown("Cálculo exacto con **Salario Mínimo ($315.04)** y **UMA ($117.31)** proyectados.")
 
-# BARRA LATERAL (Configuración)
+# --- BARRA LATERAL (INPUTS) ---
 with st.sidebar:
-    st.header("Fuente de Datos")
+    st.header("Datos del Empleado")
+    sueldo_bruto = st.number_input("Sueldo Bruto Mensual", value=22000.0, step=100.0)
+    periodo = st.selectbox("Periodo de Pago", ["Quincenal", "Mensual", "Semanal"])
+    antiguedad = st.number_input("Años de Antigüedad", 0, 40, 1)
+    zona = st.radio("Zona Geográfica", ["General", "Frontera Norte"])
     
-    # Estado actual
-    if st.session_state['fuente'] == "Datos Default (2025)":
-        st.warning(f"⚠️ Usando: {st.session_state['fuente']}")
-    else:
-        st.success(f"✅ Usando: {st.session_state['fuente']}")
+    st.divider()
+    if st.button("Calcular Nómina Completa ▶️", type="primary"):
+        st.session_state.calculado = True
+
+# --- LÓGICA DE PROCESAMIENTO ---
+if "calculado" in st.session_state:
     
-    st.markdown("---")
-    st.subheader("Actualizar Tablas")
-    # URL sugerida (puedes cambiarla)
-    url_input = st.text_input("URL de la Tabla ISR:", value="https://www.elcontribuyente.mx/2025/12/tablas-isr-2026/")
+    # 1. Definir días del periodo para el cálculo
+    dias_periodo = 30.4 if periodo == "Mensual" else (15.2 if periodo == "Quincenal" else 7)
+    factor_mes = 30.4 / dias_periodo
     
-    if st.button("🌐 Buscar y Extraer Datos"):
-        if api_ok:
-            with st.spinner("🤖 Leyendo sitio web..."):
-                nueva_tabla = obtener_tablas_desde_web(url_input)
-                if nueva_tabla:
-                    st.session_state["tabla_isr"] = nueva_tabla
-                    st.session_state["fuente"] = "Extraído de Internet"
-                    st.success("¡Datos actualizados!")
-                    st.rerun() # Recarga la página para mostrar cambios
-                else:
-                    st.error("No encontré una tabla válida en esa página.")
-        else:
-            st.error("⚠️ Falta API Key. Configúrala en .streamlit/secrets.toml")
-
-    with st.expander("Ver Tabla Técnica (Debug)"):
-        st.dataframe(pd.DataFrame(st.session_state["tabla_isr"], columns=["LimInf", "Cuota", "%"]), hide_index=True)
-
-# PANEL PRINCIPAL
-col1, col2 = st.columns([1, 2])
-
-with col1:
-    st.subheader("Datos del Empleado")
-    periodo = st.selectbox("Periodo de Pago", ["Mensual", "Quincenal", "Semanal"])
-    sueldo = st.number_input("Sueldo Bruto", value=18000.0, step=100.0)
-
-with col2:
-    st.subheader("Resultado")
-    if st.button("Calcular Nómina 🚀", use_container_width=True):
-        res = calcular_nomina(sueldo, periodo, st.session_state["tabla_isr"])
+    # 2. Cálculos Previos
+    sueldo_diario = sueldo_bruto / 30.4
+    factor_int, dias_vac, dias_agui = obtener_factor_integracion(antiguedad)
+    sbc = sueldo_diario * factor_int
+    
+    # Tope de 25 UMAS
+    tope_sbc = VALORES_2026["UMA_DIARIA"] * VALORES_2026["TOPE_IMSS_UMAS"]
+    sbc_real = min(sbc, tope_sbc)
+    
+    # 3. Calcular Impuestos (Siempre se calculan mensual y se dividen)
+    # IMSS
+    imss_total_mensual, df_imss = calcular_desglose_imss(sbc_real, 30.4)
+    imss_periodo = imss_total_mensual / factor_mes
+    
+    # ISR
+    isr_total_mensual, df_isr = calcular_desglose_isr(sueldo_bruto)
+    isr_periodo = isr_total_mensual / factor_mes
+    
+    # Netos
+    sueldo_periodo = sueldo_bruto / factor_mes
+    neto_pagar = sueldo_periodo - isr_periodo - imss_periodo
+    
+    # --- RESULTADOS VISUALES ---
+    
+    # A. TARJETAS PRINCIPALES
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Bruto (Periodo)", f"${sueldo_periodo:,.2f}")
+    c2.metric("ISR Retenido", f"${isr_periodo:,.2f}", delta_color="inverse")
+    c3.metric("IMSS Obrero", f"${imss_periodo:,.2f}", delta_color="inverse")
+    c4.metric("💰 NETO A RECIBIR", f"${neto_pagar:,.2f}")
+    
+    st.divider()
+    
+    # B. PESTAÑAS DE DESGLOSE (EL CORAZÓN DE LA APP)
+    tab1, tab2, tab3 = st.tabs(["📊 Resumen Visual", "🔍 Desglose IMSS", "🧮 Auditoría ISR"])
+    
+    with tab1:
+        # Gráfica de distribución
+        col_graph, col_data = st.columns([1, 1])
         
-        st.divider()
-        # Métricas grandes
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Bruto", f"${res['Bruto']:,.2f}")
-        c2.metric("Impuestos", f"-${res['ISR']+res['IMSS']:,.2f}", delta_color="inverse")
-        c3.metric("NETO A PAGAR", f"${res['Neto']:,.2f}", delta_color="normal")
+        with col_graph:
+            datos_pie = pd.DataFrame({
+                'Concepto': ['Neto', 'ISR', 'IMSS'],
+                'Valor': [neto_pagar, isr_periodo, imss_periodo]
+            })
+            chart = alt.Chart(datos_pie).mark_arc(innerRadius=60).encode(
+                theta="Valor",
+                color="Concepto",
+                tooltip=["Concepto", "Valor"]
+            )
+            st.altair_chart(chart, use_container_width=True)
+            
+        with col_data:
+            st.subheader("Datos Laborales")
+            st.write(f"**Sueldo Diario:** ${sueldo_diario:,.2f}")
+            st.write(f"**SBC (Cotización):** ${sbc_real:,.2f}")
+            st.write(f"**Factor Integración:** {factor_int:.4f}")
+            st.caption(f"Vacaciones: {dias_vac} días | Aguinaldo: {dias_agui} días")
+
+    with tab2:
+        st.subheader("Desglose de Cuotas Obreras (IMSS)")
+        st.markdown(f"Calculado sobre un SBC de **${sbc_real:,.2f}**")
         
-        # Gráfica
-        datos_grafica = pd.DataFrame({
-            'Concepto': ['Neto', 'ISR', 'IMSS'],
-            'Monto': [res['Neto'], res['ISR'], res['IMSS']]
-        })
-        grafica = alt.Chart(datos_grafica).mark_bar().encode(
-            x='Monto',
-            y=alt.Y('Concepto', sort='-x'),
-            color='Concepto',
-            tooltip=['Concepto', 'Monto']
+        # Formatear la tabla para que se vea bonita
+        st.dataframe(
+            df_imss.style.format({"Importe a Pagar": "${:,.2f}"}),
+            use_container_width=True,
+            hide_index=True
         )
-        st.altair_chart(grafica, use_container_width=True)
+        st.info(f"**Nota:** Este es el cálculo mensual (${imss_total_mensual:,.2f}). En tu pago {periodo.lower()} se descuentan **${imss_periodo:,.2f}**.")
+
+    with tab3:
+        st.subheader("Mecánica de Cálculo del ISR")
+        st.markdown("Así determinó el SAT tu impuesto:")
+        
+        # Formateo especial para que la tasa se vea como porcentaje
+        def format_isr_table(val):
+            if isinstance(val, float):
+                if val < 1.0 and val > 0: return f"{val*100:.2f}%" # Es tasa
+                return f"${val:,.2f}" # Es dinero
+            return val
+
+        st.table(df_isr.assign(Monto=df_isr['Monto'].apply(format_isr_table)))
+        
+        st.success(f"ISR Total del Mes: **${isr_total_mensual:,.2f}** ÷ Factor Periodo = **${isr_periodo:,.2f}**")
+
+else:
+    st.info("👈 Ingresa los datos en la barra lateral y presiona 'Calcular' para ver la magia.")
