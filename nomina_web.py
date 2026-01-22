@@ -32,22 +32,16 @@ TABLA_ISR_MENSUAL = [
     {"limite": 425642.00, "cuota": 133488.54, "porc": 0.3500},
 ]
 
-# --- CSS "DARK ENTERPRISE" ---
+# --- CSS DARK ENTERPRISE ---
 st.markdown("""
 <style>
-    /* FONDO Y TEXTO GENERAL */
-    .stApp {
-        background-color: #0f172a; /* Slate 900 */
-        color: #f8fafc;
-    }
+    /* FONDO */
+    .stApp { background-color: #0f172a; color: #f8fafc; }
     
     /* SIDEBAR */
-    [data-testid="stSidebar"] {
-        background-color: #1e293b; /* Slate 800 */
-        border-right: 1px solid #334155;
-    }
+    [data-testid="stSidebar"] { background-color: #1e293b; border-right: 1px solid #334155; }
 
-    /* TARJETAS DE RESULTADOS (KPIs) */
+    /* TARJETAS DE RESULTADOS */
     .dark-card {
         background-color: #1e293b;
         border: 1px solid #334155;
@@ -57,18 +51,30 @@ st.markdown("""
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
     }
     
-    /* ESTILOS DE TEXTO */
-    h1, h2, h3 { color: #f8fafc !important; font-family: 'Inter', sans-serif; }
+    /* TARJETA DE INSIGHTS (NUEVA) */
+    .insight-card {
+        background-color: #1e293b;
+        border-left: 4px solid #3b82f6;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 15px;
+        border-top: 1px solid #334155;
+        border-right: 1px solid #334155;
+        border-bottom: 1px solid #334155;
+    }
+    
+    /* TEXTOS */
+    h1, h2, h3, h4 { color: #f8fafc !important; font-family: 'Inter', sans-serif; }
     p, li, label, .stMarkdown { color: #cbd5e1 !important; }
     
-    /* INPUTS (Fix para que se vean bien en modo oscuro) */
+    /* INPUTS */
     .stNumberInput input, .stSelectbox div[data-baseweb="select"] {
         background-color: #0f172a !important;
         color: white !important;
         border: 1px solid #475569 !important;
     }
     
-    /* MÉTRICAS PERSONALIZADAS */
+    /* MÉTRICAS */
     .kpi-label {
         font-size: 0.85rem;
         color: #94a3b8;
@@ -83,6 +89,7 @@ st.markdown("""
         color: #ffffff;
         font-family: 'Roboto', sans-serif;
     }
+    .insight-val { color: #ffffff; font-weight: 700; font-size: 1.1em; }
     
     /* COLORES NEÓN */
     .neon-green { color: #34d399 !important; } 
@@ -92,7 +99,6 @@ st.markdown("""
     
     /* TABLAS */
     .stDataFrame { border: 1px solid #334155; border-radius: 8px; }
-    
 </style>
 """, unsafe_allow_html=True)
 
@@ -135,25 +141,19 @@ def calcular_imss_engine(sbc, dias):
     }
     return sum(conceptos.values()), conceptos
 
-# --- BARRA LATERAL (SIDEBAR) ---
+# --- SIDEBAR ---
 with st.sidebar:
-    # 1. INTEGRACIÓN DEL LOGO
-    # Si tienes la imagen guardada como 'nominapp_logo.png' en la carpeta:
     if os.path.exists("nominapp_logo.png"):
         st.image("nominapp_logo.png", use_container_width=True)
     else:
-        # Fallback por si no han guardado la imagen aún
         st.markdown("## 🚀 Nominapp MX")
-        st.caption("Guarda tu logo como 'nominapp_logo.png'")
-    
+
     st.markdown("---")
     
-    # 2. CONTROLES
     with st.container(border=True):
         st.markdown("##### ⚙️ Parámetros")
         criterio = st.selectbox("Criterio Días", ["Comercial (30)", "Fiscal (30.4)"])
         dias_mes_base = 30.0 if "Comercial" in criterio else 30.4
-        
         periodo = st.selectbox("Frecuencia", ["Quincenal", "Semanal", "Mensual"])
         if periodo == "Quincenal": dias_pago = 15
         elif periodo == "Semanal": dias_pago = 7
@@ -161,7 +161,6 @@ with st.sidebar:
 
     with st.container(border=True):
         st.markdown("##### 💵 Ingresos")
-        # Cambio de etiqueta para mayor claridad
         tipo_ingreso = st.radio("Modalidad de Pago", ["Bruto Mensual", "Por Periodo (Nómina)"], horizontal=True)
         monto_input = st.number_input("Monto Bruto ($)", value=20000.0, step=500.0, format="%.2f")
         
@@ -175,12 +174,9 @@ with st.sidebar:
         antig = st.number_input("Años Laborados", 0, 60, 0)
 
     st.markdown("---")
-    if st.button("CALCULAR NÓMINA", type="primary", use_container_width=True):
-        pass
+    st.button("CALCULAR NÓMINA", type="primary", use_container_width=True)
 
-# --- DASHBOARD PRINCIPAL ---
-
-# CÁLCULOS (Variables globales para evitar NameError)
+# --- DASHBOARD ---
 dias_vac = 14 if antig > 0 else 12
 factor_int = 1 + ((15 + (dias_vac*0.25))/365)
 sbc = min(sueldo_diario * factor_int, VALORES_2026["UMA"] * 25)
@@ -190,9 +186,8 @@ imss, df_imss_raw = calcular_imss_engine(sbc, dias_pago)
 isr, df_isr_raw = calcular_isr_engine(sueldo_diario, dias_pago, dias_mes_base)
 neto = bruto - imss - isr
 
-# 1. TARJETAS DE RESULTADOS (KPIs)
+# 1. KPIs
 c1, c2, c3, c4 = st.columns(4)
-
 with c1:
     st.markdown(f"""<div class="dark-card"><div class="kpi-label">Ingreso Bruto</div><div class="kpi-value">${bruto:,.2f}</div></div>""", unsafe_allow_html=True)
 with c2:
@@ -204,45 +199,70 @@ with c4:
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# 2. PESTAÑAS DE DETALLE
-tab_main, tab_isr, tab_imss = st.tabs(["🧠 Análisis & Gráfica", "🏛️ Desglose ISR", "🏥 Desglose IMSS"])
+# 2. ANÁLISIS MEJORADO
+tab_main, tab_isr, tab_imss = st.tabs(["🧠 Insights & Valor Real", "🏛️ Desglose ISR", "🏥 Desglose IMSS"])
 
 with tab_main:
     col_graph, col_insights = st.columns([1, 2])
     
     with col_graph:
-        # DATAFRAME PARA GRÁFICA
+        # Gráfica Dona Corregida
         source = pd.DataFrame({
             "Categoría": ["Neto (Tuyo)", "ISR (SAT)", "IMSS (Salud)"],
             "Monto": [neto, isr, imss]
         })
-        
-        # GRÁFICA ALTAIR CORREGIDA (Sin cortes, sin fondo)
         base = alt.Chart(source).encode(theta=alt.Theta("Monto", stack=True))
-        pie = base.mark_arc(innerRadius=65, outerRadius=110).encode(
+        pie = base.mark_arc(innerRadius=70, outerRadius=110).encode(
             color=alt.Color("Categoría", scale=alt.Scale(range=['#34d399', '#60a5fa', '#fbbf24']),
                             legend=alt.Legend(orient="bottom", titleColor="white", labelColor="white")),
             tooltip=["Categoría", alt.Tooltip("Monto", format="$,.2f")]
         ).configure_view(strokeWidth=0).configure(background='transparent')
-        
         st.altair_chart(pie, use_container_width=True)
 
     with col_insights:
-        # CÁLCULOS DE INSIGHTS
-        tasa_efectiva = ((isr + imss) / bruto) * 100
+        # --- LÓGICA DE INSIGHTS ÚTILES ---
+        # 1. Valor Hora Real (Asumiendo 8h/día estandár)
+        horas_periodo = dias_pago * 8
+        valor_hora_bruta = bruto / horas_periodo
+        valor_hora_neta = neto / horas_periodo
+        
+        # 2. Meses trabajando para el gobierno
+        porcentaje_impuestos = (isr + imss) / bruto
+        meses_para_gobierno = porcentaje_impuestos * 12
+        
+        # 3. Proyección Anual Neta (Cashflow)
+        proyeccion_anual = neto * (365 / dias_pago)
+
+        st.markdown("#### 💡 Análisis de Valor")
+        
+        # Tarjeta 1: Tu tiempo
         st.markdown(f"""
-        <div style="background-color: #1e293b; padding: 25px; border-radius: 12px; border-left: 5px solid #60a5fa;">
-            <h4 style="margin-top:0; color:white;">💡 Análisis Financiero</h4>
-            <ul style="line-height: 2.2; font-size: 1.05rem;">
-                <li>Tu <b>Tasa Efectiva de Impuestos</b> es del <b class="neon-red">{tasa_efectiva:.1f}%</b>.</li>
-                <li>De cada $1,000 pesos que ganas, te llevas libres <b class="neon-green">${(neto/bruto)*1000:,.2f}</b>.</li>
-                <li>El gobierno y la seguridad social retienen <b class="neon-gold">${(isr+imss):,.2f}</b> en este periodo.</li>
-            </ul>
+        <div class="insight-card" style="border-left-color: #34d399;">
+            <span style="color:#94a3b8; font-size:0.9em; text-transform:uppercase; font-weight:700;">💰 Tu Hora Real</span><br>
+            <span style="color:#cbd5e1;">Aunque te contraten por <b>${valor_hora_bruta:.2f}/hr</b>, realmente entran a tu bolsa:</span><br>
+            <span style="font-size:1.8em; font-weight:800; color:#34d399;">${valor_hora_neta:.2f} MXN</span> <span style="font-size:0.9em;">por hora trabajada.</span>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Tarjeta 2: Tu esfuerzo fiscal
+        st.markdown(f"""
+        <div class="insight-card" style="border-left-color: #f87171;">
+            <span style="color:#94a3b8; font-size:0.9em; text-transform:uppercase; font-weight:700;">🏛️ Socio Incómodo (SAT+IMSS)</span><br>
+            <span style="color:#cbd5e1;">De los 12 meses del año, trabajas aproximadamente:</span><br>
+            <span style="font-size:1.5em; font-weight:800; color:#f87171;">{meses_para_gobierno:.1f} meses</span> <span style="font-size:0.9em;">exclusivamente para pagar impuestos.</span>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Tarjeta 3: Proyección
+        st.markdown(f"""
+        <div class="insight-card" style="border-left-color: #60a5fa;">
+            <span style="color:#94a3b8; font-size:0.9em; text-transform:uppercase; font-weight:700;">📅 Flujo Anual Proyectado</span><br>
+            <span style="color:#cbd5e1;">Si mantienes este sueldo, recibirás en tu cuenta:</span><br>
+            <span style="font-size:1.5em; font-weight:800; color:#60a5fa;">${proyeccion_anual:,.2f}</span> <span style="font-size:0.9em;">netos al año.</span>
         </div>
         """, unsafe_allow_html=True)
 
 with tab_isr:
-    # DATAFRAME ISR
     data_isr = [
         {"Paso": "1. Base Gravable", "Monto": df_isr_raw["Base Mensual"]},
         {"Paso": "2. Límite Inferior", "Monto": df_isr_raw["Límite Inf."]},
@@ -255,20 +275,15 @@ with tab_isr:
         {"Paso": "9. RETENCIÓN ISR", "Monto": isr},
     ]
     df_isr_view = pd.DataFrame(data_isr)
-    
-    # Formateo
     def fmt(x, c):
         if "Tasa" in c: return f"{x*100:.2f}%"
         if "Factor" in c: return f"{x:.4f}"
         return f"${x:,.2f}"
     df_isr_view["Monto"] = df_isr_view.apply(lambda x: fmt(x["Monto"], x["Paso"]), axis=1)
-    
     st.dataframe(df_isr_view, use_container_width=True, hide_index=True)
 
 with tab_imss:
-    # DATAFRAME IMSS
     df_imss_view = pd.DataFrame(list(df_imss_raw.items()), columns=["Concepto", "Monto"])
     total_imss = pd.DataFrame([{"Concepto": "TOTAL IMSS", "Monto": imss}])
     df_imss_final = pd.concat([df_imss_view, total_imss], ignore_index=True)
-    
     st.dataframe(df_imss_final.style.format({"Monto": "${:,.2f}"}), use_container_width=True, hide_index=True)
