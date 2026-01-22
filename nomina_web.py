@@ -2,10 +2,10 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 
-# CONFIGURACIÓN DE PÁGINA "FULL WIDTH"
-st.set_page_config(page_title="Nómina 2026 | Enterprise", page_icon="🏢", layout="wide")
+# CONFIGURACIÓN DE PÁGINA
+st.set_page_config(page_title="Nómina Enterprise", page_icon="💼", layout="wide")
 
-# --- 1. CONSTANTES LEGALES 2026 ---
+# --- 1. DATOS OFICIALES 2026 ---
 VALORES_2026 = {
     "UMA": 117.31,
     "SALARIO_MINIMO": 315.04,
@@ -25,39 +25,48 @@ TABLA_ISR_MENSUAL = [
     {"limite": 425642.00, "cuota": 133488.54, "porc": 0.3500},
 ]
 
-# --- 2. ESTILOS CSS "NUCLEAR" (FIX DE BLANCOS) ---
+# --- 2. CSS "ENTERPRISE" (CONTRA DARK MODE) ---
 st.markdown("""
 <style>
-    /* Fondo general suave */
+    /* 1. FORZAR FONDO CLARO EN TODA LA APP */
     .stApp {
-        background-color: #f1f5f9;
-    }
-    
-    /* ESTILO DE TARJETAS (CARDS) */
-    .pro-card {
-        background-color: #ffffff !important; /* Fondo Blanco FORZADO */
-        border-radius: 12px;
-        padding: 24px;
-        border: 1px solid #cbd5e1;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-        margin-bottom: 20px;
+        background-color: #f8fafc; /* Gris muy muy claro */
     }
 
-    /* --- EL FIX NUCLEAR --- */
-    /* Esto obliga a TODO el texto dentro de .pro-card a ser OSCURO */
-    .pro-card, .pro-card p, .pro-card div, .pro-card span, .pro-card h1, .pro-card h2, .pro-card h3, .pro-card small, .pro-card label {
-        color: #0f172a !important; /* Azul Oscuro casi Negro */
+    /* 2. FORZAR TEXTOS OSCUROS EN WIDGETS DE STREAMLIT (Inputs, Selectbox, etc) */
+    /* Esto arregla que las etiquetas se vean blancas */
+    .stSelectbox label p, .stNumberInput label p, .stDateInput label p {
+        color: #334155 !important; /* Gris Oscuro */
+        font-weight: 600;
     }
     
-    /* Forzamos también las etiquetas de los inputs de Streamlit si caen dentro */
-    div[data-testid="stMarkdownContainer"] p {
+    /* Textos generales y Headers */
+    h1, h2, h3, p, li {
+        color: #0f172a !important; /* Casi negro */
+    }
+    
+    /* Ajuste para el texto dentro de los inputs */
+    div[data-baseweb="select"] span {
+        color: #0f172a !important;
+    }
+    input {
         color: #0f172a !important;
     }
 
-    /* Métricas Específicas */
+    /* 3. ESTILO DE TARJETAS PERSONALIZADAS */
+    .pro-card {
+        background-color: #ffffff;
+        border-radius: 12px;
+        padding: 24px;
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        margin-bottom: 20px;
+    }
+    
+    /* 4. MÉTRICAS DENTRO DE LAS CARDS */
     .metric-label {
-        font-size: 0.8rem;
-        color: #64748b !important; /* Gris medio para etiquetas */
+        font-size: 0.85rem;
+        color: #64748b !important;
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.05em;
@@ -65,21 +74,23 @@ st.markdown("""
     .metric-value {
         font-size: 2.2rem;
         font-weight: 800;
-        color: #0f172a !important; /* Oscuro */
-        margin-top: 4px;
-        line-height: 1.1;
+        color: #0f172a !important;
+        line-height: 1.2;
     }
     .metric-sub {
         font-size: 0.85rem;
         color: #94a3b8 !important;
         margin-top: 4px;
     }
-    
-    /* Colores semánticos (usando !important para ganar la guerra) */
+
+    /* Colores Semánticos */
     .text-green { color: #059669 !important; }
     .text-red { color: #dc2626 !important; }
     .text-blue { color: #2563eb !important; }
-    
+
+    /* Ocultar índices de tablas */
+    thead tr th:first-child {display:none}
+    tbody th {display:none}
 </style>
 """, unsafe_allow_html=True)
 
@@ -124,59 +135,58 @@ def calcular_imss_detallado(sbc, dias):
 
 # --- 4. INTERFAZ ---
 
-# Header
-c_logo, c_title = st.columns([1, 10])
-with c_logo:
-    st.image("https://cdn-icons-png.flaticon.com/512/3135/3135810.png", width=60)
-with c_title:
-    st.markdown("# Nómina Enterprise 2026")
-    st.markdown("<div style='margin-top: -15px; color: #64748b;'>Sistema de Cálculo Fiscal y Seguridad Social</div>", unsafe_allow_html=True)
+# Header con Logo
+c_head1, c_head2 = st.columns([0.5, 5])
+with c_head1:
+    st.image("https://cdn-icons-png.flaticon.com/512/3135/3135810.png", width=50)
+with c_head2:
+    st.markdown("<h1>Nómina Enterprise 2026</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='margin-top: -15px; color: #64748b;'>Sistema Profesional de Cálculo Fiscal</p>", unsafe_allow_html=True)
 
-st.divider()
+st.markdown("---")
 
-# --- INPUTS (CARD) ---
-st.markdown('<div class="pro-card">', unsafe_allow_html=True)
-col1, col2, col3, col4 = st.columns(4)
-
-with col1:
-    criterio = st.selectbox("📅 Criterio de Días", ["Comercial (30)", "Fiscal (30.4)"])
-    dias_mes_base = 30.0 if "Comercial" in criterio else 30.4
-
-with col2:
-    periodo = st.selectbox("⏱️ Frecuencia de Pago", ["Quincenal", "Semanal", "Mensual"])
-    if periodo == "Quincenal": dias_pago = 15
-    elif periodo == "Semanal": dias_pago = 7
-    else: dias_pago = dias_mes_base
+# --- AREA DE INPUTS (CONTENEDOR NATIVO CON BORDE) ---
+# Usamos st.container(border=True) porque respeta mejor los inputs, 
+# pero le aplicamos estilos globales para que parezca nuestra "Card blanca".
+with st.container(border=True):
+    col1, col2, col3, col4 = st.columns(4)
     
-with col3:
-    tipo_ingreso = st.selectbox("💰 Tipo de Ingreso", ["Bruto Mensual", "Bruto por Periodo"])
+    with col1:
+        criterio = st.selectbox("📅 Criterio de Días", ["Comercial (30)", "Fiscal (30.4)"])
+        dias_mes_base = 30.0 if "Comercial" in criterio else 30.4
+    
+    with col2:
+        periodo = st.selectbox("⏱️ Frecuencia", ["Quincenal", "Semanal", "Mensual"])
+        if periodo == "Quincenal": dias_pago = 15
+        elif periodo == "Semanal": dias_pago = 7
+        else: dias_pago = dias_mes_base
+        
+    with col3:
+        tipo_ingreso = st.selectbox("💰 Tipo de Ingreso", ["Bruto Mensual", "Bruto por Periodo"])
+    
+    with col4:
+        monto_input = st.number_input(f"Monto ({tipo_ingreso})", value=20000.0, step=500.0)
+        if tipo_ingreso == "Bruto Mensual":
+            sueldo_diario = monto_input / dias_mes_base
+        else:
+            sueldo_diario = monto_input / dias_pago
 
-with col4:
-    monto_input = st.number_input(f"Monto ({tipo_ingreso})", value=20000.0, step=500.0)
-    if tipo_ingreso == "Bruto Mensual":
-        sueldo_diario = monto_input / dias_mes_base
-    else:
-        sueldo_diario = monto_input / dias_pago
+    # Fila 2
+    col5, col6 = st.columns([1, 3])
+    with col5:
+        antig = st.number_input("🎂 Años Antigüedad", 0, 50, 0)
+    with col6:
+        # Texto informativo protegido con HTML
+        st.info(f"Salario Diario Integrado para cálculo: ${sueldo_diario:,.2f}")
 
-# Fila 2
-col5, col6 = st.columns([1, 3])
-with col5:
-    antig = st.number_input("🎂 Años Antigüedad", 0, 50, 0)
-with col6:
-    # INFO BOX
-    st.info(f"ℹ️ **Base de Cálculo:** Se integra un Salario Diario de **${sueldo_diario:,.2f}** para efectos fiscales.")
-
-if st.button("Generar Cálculo", type="primary", use_container_width=True):
-    st.session_state.run = True
-st.markdown('</div>', unsafe_allow_html=True)
+    btn_calc = st.button("Generar Cálculo", type="primary", use_container_width=True)
 
 
 # --- RESULTADOS ---
-if "run" in st.session_state:
+if btn_calc:
     
     # Lógica
-    if antig == 0: dias_vac = 12
-    else: dias_vac = 14
+    dias_vac = 14 if antig > 0 else 12
     factor_int = 1 + ((15 + (dias_vac*0.25))/365)
     sbc = min(sueldo_diario * factor_int, VALORES_2026["UMA"] * 25)
     
@@ -185,9 +195,9 @@ if "run" in st.session_state:
     isr, df_isr_raw = calcular_isr_proyeccion(sueldo_diario, dias_pago, dias_mes_base)
     neto = bruto - imss - isr
     
-    # --- METRICS (HTML CARDS) ---
-    st.markdown("### 📊 Resultado del Periodo")
+    st.markdown("<br>", unsafe_allow_html=True)
     
+    # --- METRICS CARDS (HTML PURO PARA CONTROL TOTAL) ---
     k1, k2, k3, k4 = st.columns(4)
     
     with k1:
@@ -223,60 +233,59 @@ if "run" in st.session_state:
         </div>
         """, unsafe_allow_html=True)
 
-    # --- DETALLES ---
+    # --- TABS DE DETALLE ---
     
-    tab_vis, tab_isr, tab_imss = st.tabs(["🧠 Análisis Financiero", "🏛️ Auditoría Fiscal (ISR)", "🏥 Seguridad Social (IMSS)"])
+    tab_vis, tab_isr, tab_imss = st.tabs(["📊 Análisis Visual", "🏛️ Auditoría ISR", "🏥 Auditoría IMSS"])
     
     with tab_vis:
-        st.markdown('<div class="pro-card">', unsafe_allow_html=True)
-        cg1, cg2 = st.columns([1, 2])
-        
-        with cg1:
+        c1, c2 = st.columns([1, 2])
+        with c1:
             source = pd.DataFrame({"Concepto": ["Neto", "ISR", "IMSS"], "Monto": [neto, isr, imss]})
             base = alt.Chart(source).encode(theta=alt.Theta("Monto", stack=True))
-            pie = base.mark_arc(innerRadius=65, outerRadius=105).encode(
+            pie = base.mark_arc(innerRadius=60, outerRadius=100).encode(
                 color=alt.Color("Concepto", scale=alt.Scale(domain=['Neto', 'ISR', 'IMSS'], range=['#10b981', '#3b82f6', '#f59e0b'])),
                 tooltip=["Concepto", alt.Tooltip("Monto", format="$,.2f")]
             )
             st.altair_chart(pie, use_container_width=True)
-            
-        with cg2:
-            st.markdown("#### Distribución de Ingresos")
+        with c2:
+            st.markdown("#### Distribución de Nómina")
             st.markdown(f"""
-            <ul style="line-height: 2.2; color: #0f172a;">
-                <li>De cada <b>&#36;1,000.00 pesos</b> que genera tu puesto:</li>
-                <li>Te llevas a casa: <b class="text-green">&#36;{(neto/bruto)*1000:,.2f}</b> libres.</li>
-                <li>Pagas de impuestos: <b class="text-blue">&#36;{(isr/bruto)*1000:,.2f}</b> (ISR).</li>
-                <li>Aportas al seguro: <b class="text-red">&#36;{(imss/bruto)*1000:,.2f}</b> (IMSS).</li>
-            </ul>
+            <div style="background-color: white; padding: 15px; border-radius: 10px; border: 1px solid #e2e8f0;">
+                <ul style="margin: 0; padding-left: 20px; line-height: 2;">
+                    <li><b>Sueldo Bruto:</b> &#36;{bruto:,.2f}</li>
+                    <li style="color: #dc2626;"><b>Deducciones Totales:</b> -&#36;{isr+imss:,.2f}</li>
+                    <li style="color: #059669; font-weight: bold; font-size: 1.1em;"><b>Neto Recibido:</b> &#36;{neto:,.2f}</li>
+                </ul>
+            </div>
             """, unsafe_allow_html=True)
-            st.caption("Cálculo 2026 oficial.")
-        st.markdown('</div>', unsafe_allow_html=True)
 
     with tab_isr:
-        data_isr = [
-            {"Concepto": "1. Base Gravable Mensual", "Monto": df_isr_raw["Base Mensual"]},
-            {"Concepto": "2. (-) Límite Inferior", "Monto": df_isr_raw["Límite Inferior"]},
-            {"Concepto": "3. (=) Excedente", "Monto": df_isr_raw["Excedente"]},
-            {"Concepto": "4. (x) Tasa Aplicable", "Monto": df_isr_raw["Tasa"]},
-            {"Concepto": "5. (=) Impuesto Marginal", "Monto": df_isr_raw["Marginal"]},
-            {"Concepto": "6. (+) Cuota Fija", "Monto": df_isr_raw["Cuota Fija"]},
-            {"Concepto": "7. (=) ISR Mensual", "Monto": df_isr_raw["ISR Mes"]},
-            {"Concepto": f"8. (x) Factor Periodo ({periodo})", "Monto": df_isr_raw["Factor"]},
-            {"Concepto": "9. (=) RETENCIÓN FINAL", "Monto": isr},
+        # Preparamos datos para tabla
+        data = [
+            {"Concepto": "1. Base Gravable Mensual", "Valor": df_isr_raw["Base Mensual"]},
+            {"Concepto": "2. Límite Inferior", "Valor": df_isr_raw["Límite Inferior"]},
+            {"Concepto": "3. Excedente", "Valor": df_isr_raw["Excedente"]},
+            {"Concepto": "4. Tasa %", "Valor": df_isr_raw["Tasa"]},
+            {"Concepto": "5. Impuesto Marginal", "Valor": df_isr_raw["Marginal"]},
+            {"Concepto": "6. Cuota Fija", "Valor": df_isr_raw["Cuota Fija"]},
+            {"Concepto": "7. ISR Mensual", "Valor": df_isr_raw["ISR Mes"]},
+            {"Concepto": f"8. Factor ({periodo})", "Valor": df_isr_raw["Factor"]},
+            {"Concepto": "9. RETENCIÓN ISR", "Valor": isr},
         ]
-        df_audit = pd.DataFrame(data_isr)
+        df = pd.DataFrame(data)
         
-        def fmt(x, label):
-            if "Factor" in label: return f"{x:.4f}"
-            if "Tasa" in label: return f"{x*100:.2f}%"
+        # Formateador
+        def fmt(x, c):
+            if "Tasa" in c: return f"{x*100:.2f}%"
+            if "Factor" in c: return f"{x:.4f}"
             return f"${x:,.2f}"
             
-        df_audit["Monto"] = df_audit.apply(lambda x: fmt(x["Monto"], x["Concepto"]), axis=1)
-        st.dataframe(df_audit, hide_index=True, use_container_width=True)
+        df["Valor"] = df.apply(lambda x: fmt(x["Valor"], x["Concepto"]), axis=1)
+        
+        st.dataframe(df, use_container_width=True, hide_index=True)
 
     with tab_imss:
-        df_imss = pd.DataFrame(list(df_imss_raw.items()), columns=["Rama", "Importe"])
-        total_row = pd.DataFrame([{"Rama": "TOTAL RETENCIÓN IMSS", "Importe": imss}])
-        df_imss = pd.concat([df_imss, total_row], ignore_index=True)
-        st.dataframe(df_imss, hide_index=True, use_container_width=True, column_config={"Importe": st.column_config.NumberColumn(format="$%.2f")})
+        df_imss = pd.DataFrame(list(df_imss_raw.items()), columns=["Concepto", "Monto"])
+        total = pd.DataFrame([{"Concepto": "TOTAL IMSS", "Monto": imss}])
+        df_final = pd.concat([df_imss, total], ignore_index=True)
+        st.dataframe(df_final.style.format({"Monto": "${:,.2f}"}), use_container_width=True, hide_index=True)
