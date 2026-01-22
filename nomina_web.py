@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 import os
-from datetime import date
+from datetime import date, timedelta
 
 # --- CONFIGURACIÓN ---
 st.set_page_config(
@@ -16,10 +16,9 @@ st.set_page_config(
 VALORES_2026 = {
     "UMA": 117.31,
     "SALARIO_MINIMO_GENERAL": 315.04,
-    "SALARIO_MINIMO_ZLFN": 440.87, # Zona Libre Frontera Norte
+    "SALARIO_MINIMO_ZLFN": 440.87,
 }
 
-# TABLA ISR MENSUAL 2026
 TABLA_ISR_MENSUAL = [
     {"limite": 0.01, "cuota": 0.00, "porc": 0.0192},
     {"limite": 844.60, "cuota": 16.22, "porc": 0.0640},
@@ -37,33 +36,16 @@ TABLA_ISR_MENSUAL = [
 # --- CSS DARK ENTERPRISE ---
 st.markdown("""
 <style>
-    /* ESTILOS GENERALES */
     .stApp { background-color: #0f172a; color: #f8fafc; }
     [data-testid="stSidebar"] { background-color: #1e293b; border-right: 1px solid #334155; }
-    
-    /* TARJETAS */
     .dark-card { background-color: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 24px; text-align: center; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3); }
     .insight-card { background-color: #1e293b; border-left: 4px solid #3b82f6; border-radius: 8px; padding: 20px; margin-bottom: 15px; border-top: 1px solid #334155; border-right: 1px solid #334155; border-bottom: 1px solid #334155; }
-    
-    /* TIPOGRAFÍA */
     h1, h2, h3, h4 { color: #f8fafc !important; font-family: 'Inter', sans-serif; }
     p, li, label, .stMarkdown { color: #cbd5e1 !important; }
-    
-    /* INPUTS */
     .stNumberInput input, .stSelectbox div[data-baseweb="select"], .stDateInput input, .stRadio label { background-color: #0f172a !important; color: white !important; border: 1px solid #475569 !important; }
-    
-    /* MÉTRICAS */
     .kpi-label { font-size: 0.85rem; color: #94a3b8; text-transform: uppercase; font-weight: 700; letter-spacing: 1px; margin-bottom: 8px; }
     .kpi-value { font-size: 2.2rem; font-weight: 800; color: #ffffff; font-family: 'Roboto', sans-serif; }
-    
-    /* COLORES */
-    .neon-green { color: #34d399 !important; } 
-    .neon-red { color: #f87171 !important; } 
-    .neon-gold { color: #fbbf24 !important; } 
-    .neon-blue { color: #60a5fa !important; } 
-    .neon-purple { color: #a78bfa !important; }
-    
-    /* TABLAS */
+    .neon-green { color: #34d399 !important; } .neon-red { color: #f87171 !important; } .neon-gold { color: #fbbf24 !important; } .neon-blue { color: #60a5fa !important; } .neon-purple { color: #a78bfa !important; }
     .stDataFrame { border: 1px solid #334155; border-radius: 8px; }
 </style>
 """, unsafe_allow_html=True)
@@ -71,7 +53,6 @@ st.markdown("""
 # --- MOTORES DE CÁLCULO ---
 
 def calcular_isr_engine(base_gravable, tabla_isr):
-    """Calcula ISR Mensual y devuelve desglose detallado"""
     limite, cuota, porc = 0, 0, 0
     for row in tabla_isr:
         if base_gravable >= row["limite"]:
@@ -80,20 +61,9 @@ def calcular_isr_engine(base_gravable, tabla_isr):
     excedente = base_gravable - limite
     marginal = excedente * porc
     isr = marginal + cuota
-    
-    desglose = {
-        "Base Mensual": base_gravable,
-        "Límite Inferior": limite,
-        "Excedente": excedente,
-        "Tasa (%)": porc,
-        "Impuesto Marginal": marginal,
-        "Cuota Fija": cuota,
-        "ISR Determinado": isr
-    }
-    return isr, desglose
+    return isr, {"Límite": limite, "Excedente": excedente, "Tasa (%)": porc, "Impuesto Marginal": marginal, "Cuota Fija": cuota, "ISR Determinado": isr}
 
 def calcular_imss_obrero(sbc, dias):
-    """Cuotas a cargo del trabajador"""
     uma = VALORES_2026["UMA"]
     exc = max(0, sbc - (3*uma))
     conceptos = {
@@ -106,10 +76,8 @@ def calcular_imss_obrero(sbc, dias):
     return sum(conceptos.values()), conceptos
 
 def calcular_imss_patronal(sbc, dias, prima_riesgo):
-    """Cuotas a cargo del patrón"""
     uma = VALORES_2026["UMA"]
     exc = max(0, sbc - (3*uma))
-    
     veces_uma = sbc / uma
     if veces_uma <= 1.0: tasa_cyv = 0.0315
     elif veces_uma <= 1.5: tasa_cyv = 0.0420
@@ -119,7 +87,6 @@ def calcular_imss_patronal(sbc, dias, prima_riesgo):
     elif veces_uma <= 3.5: tasa_cyv = 0.1077
     elif veces_uma <= 4.0: tasa_cyv = 0.11875
     else: tasa_cyv = 0.11875
-    
     conceptos = {
         "Cuota Fija": (uma * 0.204) * dias,
         "Excedente 3 UMA": exc * 0.011 * dias,
@@ -134,6 +101,22 @@ def calcular_imss_patronal(sbc, dias, prima_riesgo):
     }
     return sum(conceptos.values()), conceptos
 
+def obtener_dias_vacaciones_ley(anios_antiguedad):
+    """Tabla de vacaciones dignas 2026"""
+    anios = int(anios_antiguedad)
+    if anios < 1: return 12 # Proporcional de 12
+    if anios == 1: return 12
+    if anios == 2: return 14
+    if anios == 3: return 16
+    if anios == 4: return 18
+    if anios == 5: return 20
+    if 6 <= anios <= 10: return 22
+    if 11 <= anios <= 15: return 24
+    if 16 <= anios <= 20: return 26
+    if 21 <= anios <= 25: return 28
+    if 26 <= anios <= 30: return 30
+    return 32
+
 # --- SIDEBAR ---
 with st.sidebar:
     if os.path.exists("nominapp_logo.png"):
@@ -143,7 +126,6 @@ with st.sidebar:
     
     st.markdown("---")
     
-    # SELECTOR ZONA
     zona_geo = st.selectbox("🌍 Zona Geográfica", ["Resto del País", "Frontera Norte (ZLFN)"])
     if zona_geo == "Resto del País":
         sm_aplicable = VALORES_2026["SALARIO_MINIMO_GENERAL"]
@@ -173,14 +155,11 @@ if modulo == "Nómina Periódica":
             st.markdown("##### 💵 Ingreso del Periodo")
             tipo_ingreso = st.radio("Base", ["Bruto Mensual", "Por Periodo"], horizontal=True)
             monto_input = st.number_input("Monto ($)", value=25000.0, step=500.0, format="%.2f")
-            
             if tipo_ingreso == "Bruto Mensual": sueldo_diario = monto_input / dias_mes_base
             else: sueldo_diario = monto_input / dias_pago
             
-            # Ajuste Mensual
             st.markdown("##### 🔄 Ajuste de Impuestos")
             es_ajuste = st.toggle("¿Es cierre de mes (Ajuste)?", value=False)
-            
             ingreso_acumulado_prev = 0.0
             isr_retenido_prev = 0.0
             if es_ajuste:
@@ -196,21 +175,18 @@ if modulo == "Nómina Periódica":
         
         st.button("CALCULAR NÓMINA", type="primary", use_container_width=True)
 
-    # CÁLCULOS
-    dias_vac = 14 if antig > 0 else 12
+    dias_vac = obtener_dias_vacaciones_ley(antig)
     factor_int = 1 + ((15 + (dias_vac*0.25))/365)
     sbc = min(sueldo_diario * factor_int, VALORES_2026["UMA"] * 25)
     bruto_periodo = sueldo_diario * dias_pago
     imss_obrero, df_imss_obr = calcular_imss_obrero(sbc, dias_pago)
     
-    # ISR
     es_salario_minimo = False
-    desglose_isr_men = {} # Para guardar el detalle del cálculo mensual
+    desglose_isr_men = {}
     
     if sueldo_diario <= (sm_aplicable + 1.0):
         es_salario_minimo = True
         isr_periodo = 0.0
-        # Calculamos solo para mostrar el "qué hubiera pasado" o el desglose teórico
         base_mensual_proy = sueldo_diario * dias_mes_base
         _, desglose_isr_men = calcular_isr_engine(base_mensual_proy, TABLA_ISR_MENSUAL)
     else:
@@ -224,13 +200,10 @@ if modulo == "Nómina Periódica":
             isr_periodo = isr_mensual_proy * (dias_pago / dias_mes_base)
 
     neto = bruto_periodo - imss_obrero - isr_periodo
-
-    # Carga Patronal
     imss_patronal, df_imss_pat = calcular_imss_patronal(sbc, dias_pago, prima_riesgo)
     isn = bruto_periodo * (tasa_isn / 100)
     costo_total = bruto_periodo + imss_patronal + isn
 
-    # DASHBOARD
     titulo_kpi = "Nómina con Ajuste Mensual" if es_ajuste else f"Nómina: {periodo}"
     st.markdown(f"### 📊 {titulo_kpi}")
     
@@ -245,10 +218,8 @@ if modulo == "Nómina Periódica":
     
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # TABS CON ANÁLISIS PROFUNDO
-    active_tabs = st.tabs(["🧠 Insights", "🏛️ Desglose ISR", "🏥 Desglose IMSS", "🏢 Costo Empresa"])
+    active_tabs = st.tabs(["🧠 Insights", "🏛️ Desglose ISR", "🏥 IMSS Obrero", "🏢 Costo Empresa"])
     
-    # 1. INSIGHTS GENERALES
     with active_tabs[0]:
         col_g, col_i = st.columns([1, 2])
         with col_g:
@@ -259,14 +230,12 @@ if modulo == "Nómina Periódica":
                 tooltip=["Rubro", alt.Tooltip("Monto", format="$,.2f")]
             ).configure_view(strokeWidth=0).configure(background='transparent')
             st.altair_chart(pie, use_container_width=True)
-            
         with col_i:
             horas = dias_pago * 8
             valor_hora = neto / horas
             meses_gob = ((isr_periodo+imss_obrero)/bruto_periodo) * 12 if bruto_periodo > 0 else 0
             anual = neto * (365/dias_pago)
-            
-            html_code = f"""
+            st.markdown(f"""
             <div class="insight-card" style="border-left-color: #34d399;">
                 <span style="color:#94a3b8; font-weight:700;">💰 TU HORA REAL</span><br>
                 <span style="color:#cbd5e1;">Realmente ganas:</span> <span style="font-size:1.5em; font-weight:800; color:#34d399;">${valor_hora:.2f} MXN</span>/hora.
@@ -279,94 +248,67 @@ if modulo == "Nómina Periódica":
                 <span style="color:#94a3b8; font-weight:700;">📅 PROYECCIÓN ANUAL</span><br>
                 <span style="color:#cbd5e1;">Ingreso neto proyectado:</span> <span style="font-size:1.5em; font-weight:800; color:#60a5fa;">${anual:,.2f}</span>
             </div>
-            """
-            st.markdown(html_code, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
 
-    # 2. DESGLOSE ISR DETALLADO
     with active_tabs[1]:
-        st.markdown("#### 🔍 Auditoría de Cálculo ISR (Mensualizado)")
-        
-        # CARD DE TASA EFECTIVA
-        if es_salario_minimo:
-            st.info("No aplica cálculo por Salario Mínimo.")
-        else:
+        st.markdown("#### 🔍 Auditoría de Cálculo ISR")
+        if not es_salario_minimo:
             tasa_marginal = desglose_isr_men.get("Tasa (%)", 0) * 100
             tasa_efectiva = (isr_periodo / bruto_periodo) * 100 if bruto_periodo > 0 else 0
-            
             st.markdown(f"""
             <div style="display:flex; gap:20px; margin-bottom:20px;">
                 <div class="insight-card" style="flex:1; text-align:center; border-left-color: #fbbf24;">
-                    <span style="color:#94a3b8; font-size:0.8em; font-weight:700;">TASA MARGINAL (TABLAS)</span><br>
-                    <span style="font-size:1.8em; font-weight:800; color:#fbbf24;">{tasa_marginal:.1f}%</span><br>
-                    <span style="font-size:0.8em; color:#cbd5e1;">Renglón en el que caes</span>
+                    <span style="color:#94a3b8; font-size:0.8em; font-weight:700;">TASA MARGINAL</span><br>
+                    <span style="font-size:1.8em; font-weight:800; color:#fbbf24;">{tasa_marginal:.1f}%</span>
                 </div>
                 <div class="insight-card" style="flex:1; text-align:center; border-left-color: #34d399;">
-                    <span style="color:#94a3b8; font-size:0.8em; font-weight:700;">TASA EFECTIVA (REAL)</span><br>
-                    <span style="font-size:1.8em; font-weight:800; color:#34d399;">{tasa_efectiva:.1f}%</span><br>
-                    <span style="font-size:0.8em; color:#cbd5e1;">Lo que realmente pagas</span>
+                    <span style="color:#94a3b8; font-size:0.8em; font-weight:700;">TASA EFECTIVA</span><br>
+                    <span style="font-size:1.8em; font-weight:800; color:#34d399;">{tasa_efectiva:.1f}%</span>
                 </div>
             </div>
             """, unsafe_allow_html=True)
-
-            # TABLA PASO A PASO (Auditoría)
-            audit_data = [
-                {"Paso": "1. Base Mensual", "Monto": desglose_isr_men["Base Mensual"]},
-                {"Paso": "2. (-) Límite Inferior", "Monto": desglose_isr_men["Límite Inferior"]},
-                {"Paso": "3. (=) Excedente", "Monto": desglose_isr_men["Excedente"]},
-                {"Paso": f"4. (x) Tasa ({desglose_isr_men['Tasa (%)']*100:.2f}%)", "Monto": desglose_isr_men["Impuesto Marginal"]},
-                {"Paso": "5. (+) Cuota Fija", "Monto": desglose_isr_men["Cuota Fija"]},
-                {"Paso": "6. (=) ISR Mensual", "Monto": desglose_isr_men["ISR Determinado"]},
-            ]
             
-            # Agregamos el factor de proporción si no es ajuste
+            audit_data = [
+                {"Paso": "1. Base Mensual", "Monto": desglose_isr_men.get("Base Mensual", 0)},
+                {"Paso": "2. (-) Límite Inferior", "Monto": desglose_isr_men.get("Límite Inferior", 0)},
+                {"Paso": "3. (=) Excedente", "Monto": desglose_isr_men.get("Excedente", 0)},
+                {"Paso": f"4. (x) Tasa ({tasa_marginal:.2f}%)", "Monto": desglose_isr_men.get("Impuesto Marginal", 0)},
+                {"Paso": "5. (+) Cuota Fija", "Monto": desglose_isr_men.get("Cuota Fija", 0)},
+                {"Paso": "6. (=) ISR Mensual", "Monto": desglose_isr_men.get("ISR Determinado", 0)},
+            ]
             if not es_ajuste:
                 audit_data.append({"Paso": f"7. (x) Factor Días ({dias_pago}/{dias_mes_base})", "Monto": isr_periodo})
             
             df_audit = pd.DataFrame(audit_data)
-            
-            # Formateo personalizado
-            def format_audit(val, paso):
-                if "Tasa" in paso and val < 1: return f"Tasa" # El monto ya viene calculado como marginal
-                return f"${val:,.2f}"
-
             st.dataframe(df_audit.style.format({"Monto": "${:,.2f}"}), use_container_width=True, hide_index=True)
+        else:
+            st.info("No aplica desglose por Salario Mínimo.")
 
-    # 3. DESGLOSE IMSS (SALUD VS FUTURO)
     with active_tabs[2]:
-        st.markdown("#### 🏥 Distribución de tu Aportación")
-        
-        # Agrupación Salud vs Retiro
+        st.markdown("#### 🏥 Distribución IMSS")
         imss_salud = df_imss_obr["Enfermedad (Exc)"] + df_imss_obr["Prest. Dinero"] + df_imss_obr["Gastos Médicos"]
         imss_futuro = df_imss_obr["Invalidez y Vida"] + df_imss_obr["Cesantía y Vejez"]
-        
         st.markdown(f"""
         <div style="display:flex; gap:20px; margin-bottom:20px;">
             <div class="insight-card" style="flex:1; border-left-color: #60a5fa;">
-                <span style="color:#60a5fa; font-weight:700;">🩺 SALUD HOY (40%)</span><br>
-                <span style="font-size:1.4em; font-weight:800; color:white;">${imss_salud:,.2f}</span><br>
-                <span style="font-size:0.8em; color:#94a3b8;">Atención médica e incapacidades.</span>
+                <span style="color:#60a5fa; font-weight:700;">🩺 SALUD HOY</span><br>
+                <span style="font-size:1.4em; font-weight:800; color:white;">${imss_salud:,.2f}</span>
             </div>
             <div class="insight-card" style="flex:1; border-left-color: #a78bfa;">
-                <span style="color:#a78bfa; font-weight:700;">👴 TU FUTURO (60%)</span><br>
-                <span style="font-size:1.4em; font-weight:800; color:white;">${imss_futuro:,.2f}</span><br>
-                <span style="font-size:0.8em; color:#94a3b8;">Ahorro para retiro y pensión.</span>
+                <span style="color:#a78bfa; font-weight:700;">👴 TU FUTURO</span><br>
+                <span style="font-size:1.4em; font-weight:800; color:white;">${imss_futuro:,.2f}</span>
             </div>
         </div>
         """, unsafe_allow_html=True)
-        
         df_obr = pd.DataFrame(list(df_imss_obr.items()), columns=["Concepto", "Monto"])
         st.dataframe(df_obr.style.format({"Monto": "${:,.2f}"}), use_container_width=True, hide_index=True)
         
-    # 4. COSTO EMPRESA
     with active_tabs[3]:
         st.markdown("#### 🏢 Costo Real para la Empresa")
         c_p1, c_p2, c_p3 = st.columns(3)
         with c_p1: st.metric("Sueldo Bruto", f"${bruto_periodo:,.2f}")
-        with c_p2: st.metric("Carga Social Total", f"${imss_patronal+isn:,.2f}", delta=f"{((imss_patronal+isn)/bruto_periodo)*100:.1f}% Extra", delta_color="inverse")
-        with c_p3: st.metric("Costo Total Nómina", f"${costo_total:,.2f}")
-        
-        st.markdown("---")
-        st.markdown("##### Desglose Carga Patronal")
+        with c_p2: st.metric("Carga Social", f"${imss_patronal+isn:,.2f}", delta=f"{((imss_patronal+isn)/bruto_periodo)*100:.1f}% Extra", delta_color="inverse")
+        with c_p3: st.metric("Costo Total", f"${costo_total:,.2f}")
         df_pat = pd.DataFrame(list(df_imss_pat.items()), columns=["Concepto Patronal", "Monto"])
         df_pat.loc[len(df_pat)] = ["Impuesto Sobre Nómina (ISN)", isn]
         st.dataframe(df_pat.style.format({"Monto": "${:,.2f}"}), use_container_width=True, hide_index=True)
@@ -384,7 +326,6 @@ elif modulo == "Aguinaldo":
         with st.container(border=True):
             st.markdown("##### 🗓️ Cálculo de Días")
             calculo_tipo = st.radio("Periodo a pagar", ["Año Completo (2026)", "Proporcional (Ingresé este año)"])
-            
             if calculo_tipo == "Proporcional (Ingresé este año)":
                 f_ingreso_ag = st.date_input("Fecha de Ingreso", date(2026, 6, 1))
                 f_fin_anio = date(2026, 12, 31)
@@ -398,7 +339,6 @@ elif modulo == "Aguinaldo":
     aguinaldo_bruto = (dias_trabajados/365) * dias_ley * sd
     exento = 30 * VALORES_2026["UMA"]
     gravado = max(0, aguinaldo_bruto - exento)
-    
     isr_base, _ = calcular_isr_engine(sueldo_mensual, TABLA_ISR_MENSUAL)
     isr_total, _ = calcular_isr_engine(sueldo_mensual + gravado, TABLA_ISR_MENSUAL)
     isr_retener = isr_total - isr_base
@@ -409,7 +349,6 @@ elif modulo == "Aguinaldo":
     with k1: st.markdown(f"""<div class="dark-card"><div class="kpi-label">Monto Bruto</div><div class="kpi-value">${aguinaldo_bruto:,.2f}</div></div>""", unsafe_allow_html=True)
     with k2: st.markdown(f"""<div class="dark-card"><div class="kpi-label">ISR (Retención)</div><div class="kpi-value neon-red">-${isr_retener:,.2f}</div></div>""", unsafe_allow_html=True)
     with k3: st.markdown(f"""<div class="dark-card" style="border: 1px solid #34d399;"><div class="kpi-label neon-green">Neto Final</div><div class="kpi-value neon-green">${neto:,.2f}</div></div>""", unsafe_allow_html=True)
-
     st.markdown("<br>", unsafe_allow_html=True)
     col_det, col_vis = st.columns([2, 1])
     with col_det:
@@ -440,38 +379,53 @@ elif modulo == "Finiquito y Liquidación":
 
         with st.container(border=True):
             st.markdown("##### Prestaciones Pendientes")
+            # CÁLCULO AUTOMÁTICO DE PROPORCIONALES
+            antiguedad_dias_total = (f_baja - f_alta).days + 1
+            anios_completos = int(antiguedad_dias_total / 365.25)
+            
+            # Aguinaldo Prop: Días del año en curso
             inicio_anio_baja = date(f_baja.year, 1, 1)
-            fecha_inicio_calculo = max(f_alta, inicio_anio_baja)
-            dias_trabajados_anio = (f_baja - fecha_inicio_calculo).days + 1
-            prop_dias_aguinaldo = (dias_trabajados_anio / 365) * 15
-            st.info(f"🎁 Aguinaldo proporcional: {prop_dias_aguinaldo:.2f} días")
-            dias_vac_pend = st.number_input("Días Vacaciones Pendientes", value=6.0)
+            fecha_inicio_ag = max(f_alta, inicio_anio_baja)
+            dias_ag_trab = (f_baja - fecha_inicio_ag).days + 1
+            prop_agui = (dias_ag_trab / 365) * 15 # Ley
+            
+            # Vacaciones Prop: Días desde último aniversario
+            # Fecha último aniversario:
+            fecha_aniversario = date(f_baja.year, f_alta.month, f_alta.day)
+            if fecha_aniversario > f_baja:
+                fecha_aniversario = date(f_baja.year - 1, f_alta.month, f_alta.day)
+            
+            dias_desde_aniversario = (f_baja - fecha_aniversario).days + 1
+            dias_ley_tocan = obtener_dias_vacaciones_ley(anios_completos + 1) # Del año que corre
+            prop_vac = (dias_desde_aniversario / 365) * dias_ley_tocan
+            
+            st.info(f"🎁 Aguinaldo Prop: {prop_agui:.2f} días")
+            st.info(f"🏖️ Vacaciones Prop: {prop_vac:.2f} días ({dias_ley_tocan} ley)")
+            
+            dias_vac_no_gozadas = st.number_input("Días Vacaciones Años Anteriores (No gozadas)", value=0.0)
+            total_dias_vac = prop_vac + dias_vac_no_gozadas
 
         st.button("CALCULAR LIQUIDACIÓN", type="primary", use_container_width=True)
 
-    antiguedad_dias = (f_baja - f_alta).days + 1
-    anios_completos = antiguedad_dias // 365
     sd = sueldo_men / 30
-    dias_vac_antig = 14 if anios_completos >= 1 else 12
-    factor_int = 1 + ((15 + (dias_vac_antig*0.25))/365)
+    factor_int = 1 + ((15 + (dias_ley_tocan*0.25))/365)
     sdi = sd * factor_int
 
-    monto_aguinaldo = prop_dias_aguinaldo * sd
-    monto_vac = dias_vac_pend * sd
+    monto_aguinaldo = prop_agui * sd
+    monto_vac = total_dias_vac * sd
     monto_prima_vac = monto_vac * 0.25
     
-    # TOPE PRIMA ANTIGÜEDAD (2xSM ZONA)
     tope_prima = 2 * sm_aplicable
     base_prima = min(sd, tope_prima)
     prima_antiguedad = 0
     if causa == "Despido Injustificado" or anios_completos >= 15:
-        prima_antiguedad = (antiguedad_dias / 365) * 12 * base_prima
+        prima_antiguedad = (antiguedad_dias_total / 365) * 12 * base_prima
 
     indemnizacion = 0
     veinte_dias = 0
     if causa == "Despido Injustificado":
         indemnizacion = 3 * 30 * sdi
-        veinte_dias = 20 * (antiguedad_dias / 365) * sdi
+        veinte_dias = 20 * (antiguedad_dias_total / 365) * sdi
 
     # IMPUESTOS
     _, desglose_isr_men = calcular_isr_engine(sueldo_men, TABLA_ISR_MENSUAL)
@@ -483,17 +437,16 @@ elif modulo == "Finiquito y Liquidación":
     total_separacion = prima_antiguedad + indemnizacion + veinte_dias
     ex_separacion = min(total_separacion, tope_90_umas)
     
-    # ISR Finiquito (Simplificado tasa marginal)
-    gravado_finiquito = (monto_aguinaldo - ex_agui) + (monto_prima_vac - ex_pv) + monto_vac
-    isr_finiquito = gravado_finiquito * tasa_marginal
+    # ISR Finiquito (Simplificado)
+    isr_finiquito = ((monto_aguinaldo - ex_agui) + (monto_prima_vac - ex_pv) + monto_vac) * tasa_marginal
     
-    # ISR Liquidación (Tasa Efectiva Anual)
-    gravado_separacion = total_separacion - ex_separacion
-    isr_mes_ordinario, _ = calcular_isr_engine(sueldo_men, TABLA_ISR_MENSUAL)
-    tasa_efectiva_sep = isr_mes_ordinario / sueldo_men
-    isr_separacion = gravado_separacion * tasa_efectiva_sep
+    # ISR Liquidación (Tasa Efectiva)
+    gravado_sep = total_separacion - ex_separacion
+    isr_ord_men, _ = calcular_isr_engine(sueldo_men, TABLA_ISR_MENSUAL)
+    tasa_efectiva = isr_ord_men / sueldo_men if sueldo_men > 0 else 0
+    isr_separacion = gravado_sep * tasa_efectiva
     
-    total_pagar = (total_separacion + monto_aguinaldo + monto_vac + monto_prima_vac)
+    total_pagar = total_separacion + monto_aguinaldo + monto_vac + monto_prima_vac
     total_isr = isr_finiquito + isr_separacion
     total_neto = total_pagar - total_isr
 
@@ -508,17 +461,11 @@ elif modulo == "Finiquito y Liquidación":
     
     detalle_data = [
         {"Concepto": "Aguinaldo Proporcional", "Bruto": monto_aguinaldo, "Exento": ex_agui, "ISR Aprox": (monto_aguinaldo-ex_agui)*tasa_marginal},
-        {"Concepto": "Vacaciones Pendientes", "Bruto": monto_vac, "Exento": 0, "ISR Aprox": monto_vac*tasa_marginal},
+        {"Concepto": "Vacaciones (Prop + Pend)", "Bruto": monto_vac, "Exento": 0, "ISR Aprox": monto_vac*tasa_marginal},
         {"Concepto": "Prima Vacacional", "Bruto": monto_prima_vac, "Exento": ex_pv, "ISR Aprox": (monto_prima_vac-ex_pv)*tasa_marginal},
     ]
-    
     if total_separacion > 0:
-        detalle_data.append({
-            "Concepto": "Pagos por Separación (Liq + Antig)", 
-            "Bruto": total_separacion, 
-            "Exento": ex_separacion, 
-            "ISR Aprox": isr_separacion
-        })
+        detalle_data.append({"Concepto": "Pagos por Separación (Liq + Antig)", "Bruto": total_separacion, "Exento": ex_separacion, "ISR Aprox": isr_separacion})
 
     df_detalle = pd.DataFrame(detalle_data)
     df_detalle["Neto"] = df_detalle["Bruto"] - df_detalle["ISR Aprox"]
