@@ -12,10 +12,11 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- DATOS OFICIALES 2026 ---
+# --- DATOS OFICIALES 2026 (Actualizados con ZLFN) ---
 VALORES_2026 = {
     "UMA": 117.31,
-    "SALARIO_MINIMO": 315.04,
+    "SALARIO_MINIMO_GENERAL": 315.04,
+    "SALARIO_MINIMO_ZLFN": 440.87, # Zona Libre Frontera Norte
 }
 
 # TABLA ISR MENSUAL 2026 (Oficial Anexo 8)
@@ -49,7 +50,7 @@ st.markdown("""
     p, li, label, .stMarkdown { color: #cbd5e1 !important; }
     
     /* INPUTS */
-    .stNumberInput input, .stSelectbox div[data-baseweb="select"], .stDateInput input { background-color: #0f172a !important; color: white !important; border: 1px solid #475569 !important; }
+    .stNumberInput input, .stSelectbox div[data-baseweb="select"], .stDateInput input, .stRadio label { background-color: #0f172a !important; color: white !important; border: 1px solid #475569 !important; }
     
     /* MÉTRICAS */
     .kpi-label { font-size: 0.85rem; color: #94a3b8; text-transform: uppercase; font-weight: 700; letter-spacing: 1px; margin-bottom: 8px; }
@@ -132,11 +133,24 @@ with st.sidebar:
         st.markdown("## 🚀 Nominapp MX")
     
     st.markdown("---")
+    
+    # SELECTOR DE ZONA GEOGRÁFICA (GLOBAL)
+    zona_geo = st.selectbox("🌍 Zona Geográfica", ["Resto del País", "Frontera Norte (ZLFN)"])
+    
+    # Determinar Salario Mínimo Aplicable
+    if zona_geo == "Resto del País":
+        sm_aplicable = VALORES_2026["SALARIO_MINIMO_GENERAL"]
+    else:
+        sm_aplicable = VALORES_2026["SALARIO_MINIMO_ZLFN"]
+    
+    st.caption(f"Salario Mínimo Aplicable: **${sm_aplicable:.2f}**")
+    st.markdown("---")
+    
     modulo = st.sidebar.radio("📍 Módulo", ["Nómina Periódica", "Aguinaldo", "Finiquito y Liquidación"])
     st.markdown("---")
 
 # ==============================================================================
-# MÓDULO 1: NÓMINA COMPLETA (OBRERO + PATRONAL)
+# MÓDULO 1: NÓMINA PERIÓDICA
 # ==============================================================================
 if modulo == "Nómina Periódica":
     with st.sidebar:
@@ -150,129 +164,149 @@ if modulo == "Nómina Periódica":
             else: dias_pago = dias_mes_base
 
         with st.container(border=True):
-            st.markdown("##### 💵 Ingreso")
+            st.markdown("##### 💵 Ingreso del Periodo")
             tipo_ingreso = st.radio("Base", ["Bruto Mensual", "Por Periodo"], horizontal=True)
             monto_input = st.number_input("Monto ($)", value=25000.0, step=500.0, format="%.2f")
             
             if tipo_ingreso == "Bruto Mensual": sueldo_diario = monto_input / dias_mes_base
             else: sueldo_diario = monto_input / dias_pago
+            
+            # Ajuste Mensual
+            st.markdown("##### 🔄 Ajuste de Impuestos")
+            es_ajuste = st.toggle("¿Es cierre de mes (Ajuste)?", value=False)
+            
+            ingreso_acumulado_prev = 0.0
+            isr_retenido_prev = 0.0
+            
+            if es_ajuste:
+                st.info("Ingresa los datos previos del mes:")
+                ingreso_acumulado_prev = st.number_input("Ingresos Gravados Previos", value=0.0)
+                isr_retenido_prev = st.number_input("ISR Retenido Previo", value=0.0)
 
         with st.container(border=True):
             st.markdown("##### 🏢 Datos Patronales")
-            ver_patronal = st.toggle("Ver Costo Empleador", value=False)
             prima_riesgo = st.number_input("Prima Riesgo Trabajo %", value=0.50000, step=0.1, format="%.5f")
             tasa_isn = st.number_input("Tasa ISN (Estatal) %", value=3.0, step=0.5)
             antig = st.number_input("Años Antigüedad", 1)
         
         st.button("CALCULAR NÓMINA", type="primary", use_container_width=True)
 
-    # CÁLCULOS
+    # CÁLCULOS PRINCIPALES
     dias_vac = 14 if antig > 0 else 12
     factor_int = 1 + ((15 + (dias_vac*0.25))/365)
     sbc = min(sueldo_diario * factor_int, VALORES_2026["UMA"] * 25)
-
-    # 1. Nómina Empleado
-    bruto = sueldo_diario * dias_pago
+    bruto_periodo = sueldo_diario * dias_pago
     imss_obrero, df_imss_obr = calcular_imss_obrero(sbc, dias_pago)
     
-    # ISR Mensualizado (Proyección al mes)
-    base_mensual_proy = sueldo_diario * dias_mes_base
-    isr_mensual_proy, _ = calcular_isr_engine(base_mensual_proy, TABLA_ISR_MENSUAL)
-    isr = isr_mensual_proy * (dias_pago / dias_mes_base)
-    neto = bruto - imss_obrero - isr
+    # === CÁLCULO DE ISR (CON PROTECCIÓN SALARIO MÍNIMO DE ZONA) ===
+    es_salario_minimo = False
+    
+    # La tolerancia de +1 peso es para evitar errores de redondeo en conversiones mensuales/diarias
+    if sueldo_diario <= (sm_aplicable + 1.0):
+        es_salario_minimo = True
+        isr_periodo = 0.0
+    else:
+        if es_ajuste:
+            total_ingreso_mensual = ingreso_acumulado_prev + bruto_periodo
+            isr_total_mes, _ = calcular_isr_engine(total_ingreso_mensual, TABLA_ISR_MENSUAL)
+            isr_periodo = isr_total_mes - isr_retenido_prev
+        else:
+            base_mensual_proy = sueldo_diario * dias_mes_base
+            isr_mensual_proy, _ = calcular_isr_engine(base_mensual_proy, TABLA_ISR_MENSUAL)
+            isr_periodo = isr_mensual_proy * (dias_pago / dias_mes_base)
 
-    # 2. Carga Patronal (Si aplica)
+    neto = bruto_periodo - imss_obrero - isr_periodo
+
+    # Carga Patronal
     imss_patronal, df_imss_pat = calcular_imss_patronal(sbc, dias_pago, prima_riesgo)
-    isn = bruto * (tasa_isn / 100)
-    costo_total = bruto + imss_patronal + isn
+    isn = bruto_periodo * (tasa_isn / 100)
+    costo_total = bruto_periodo + imss_patronal + isn
 
     # DASHBOARD
-    st.markdown(f"### 📊 Nómina: {periodo}")
+    titulo_kpi = "Nómina con Ajuste Mensual" if es_ajuste else f"Nómina: {periodo}"
+    st.markdown(f"### 📊 {titulo_kpi}")
     
-    if ver_patronal:
-        # VISTA EMPLEADOR (PATRÓN)
-        k1, k2, k3, k4 = st.columns(4)
-        with k1: st.markdown(f"""<div class="dark-card"><div class="kpi-label">Sueldo Bruto</div><div class="kpi-value">${bruto:,.2f}</div></div>""", unsafe_allow_html=True)
-        with k2: st.markdown(f"""<div class="dark-card"><div class="kpi-label">Carga Social (IMSS)</div><div class="kpi-value neon-purple">+${imss_patronal:,.2f}</div></div>""", unsafe_allow_html=True)
-        with k3: st.markdown(f"""<div class="dark-card"><div class="kpi-label">Impuesto Estatal (ISN)</div><div class="kpi-value neon-blue">+${isn:,.2f}</div></div>""", unsafe_allow_html=True)
-        with k4: st.markdown(f"""<div class="dark-card" style="border: 1px solid #a78bfa;"><div class="kpi-label neon-purple">Costo Total Empresa</div><div class="kpi-value neon-purple">${costo_total:,.2f}</div></div>""", unsafe_allow_html=True)
-    else:
-        # VISTA EMPLEADO (TRABAJADOR)
-        k1, k2, k3, k4 = st.columns(4)
-        with k1: st.markdown(f"""<div class="dark-card"><div class="kpi-label">Ingreso Bruto</div><div class="kpi-value">${bruto:,.2f}</div></div>""", unsafe_allow_html=True)
-        with k2: st.markdown(f"""<div class="dark-card"><div class="kpi-label">ISR (Retención)</div><div class="kpi-value neon-red">-${isr:,.2f}</div></div>""", unsafe_allow_html=True)
-        with k3: st.markdown(f"""<div class="dark-card"><div class="kpi-label">IMSS (Cuota)</div><div class="kpi-value neon-gold">-${imss_obrero:,.2f}</div></div>""", unsafe_allow_html=True)
-        with k4: st.markdown(f"""<div class="dark-card" style="border: 1px solid #34d399;"><div class="kpi-label neon-green">Neto a Recibir</div><div class="kpi-value neon-green">${neto:,.2f}</div></div>""", unsafe_allow_html=True)
+    if es_salario_minimo:
+        st.success(f"✅ **Salario Mínimo ({zona_geo}) Detectado:** No se retiene ISR (Art. 96 LISR).")
+
+    k1, k2, k3, k4 = st.columns(4)
+    with k1: st.markdown(f"""<div class="dark-card"><div class="kpi-label">Ingreso Bruto</div><div class="kpi-value">${bruto_periodo:,.2f}</div></div>""", unsafe_allow_html=True)
+    with k2: st.markdown(f"""<div class="dark-card"><div class="kpi-label">ISR ({'Ajustado' if es_ajuste else 'Retención'})</div><div class="kpi-value neon-red">-${isr_periodo:,.2f}</div></div>""", unsafe_allow_html=True)
+    with k3: st.markdown(f"""<div class="dark-card"><div class="kpi-label">IMSS (Cuota)</div><div class="kpi-value neon-gold">-${imss_obrero:,.2f}</div></div>""", unsafe_allow_html=True)
+    with k4: st.markdown(f"""<div class="dark-card" style="border: 1px solid #34d399;"><div class="kpi-label neon-green">Neto a Recibir</div><div class="kpi-value neon-green">${neto:,.2f}</div></div>""", unsafe_allow_html=True)
     
     st.markdown("<br>", unsafe_allow_html=True)
 
     # ANÁLISIS
-    tabs_list = ["🧠 Insights", "🏛️ Desglose ISR", "🏥 IMSS Obrero"]
-    if ver_patronal: tabs_list.append("🏢 IMSS Patronal")
-    
-    active_tabs = st.tabs(tabs_list)
+    active_tabs = st.tabs(["🧠 Insights", "🏛️ Desglose ISR", "🏥 IMSS Obrero", "🏢 Costo Empresa"])
     
     with active_tabs[0]:
         col_g, col_i = st.columns([1, 2])
         with col_g:
-            if ver_patronal:
-                # Gráfica Costo Empresa
-                source = pd.DataFrame({"Rubro": ["Neto Empleado", "Impuestos (ISR+IMSS Obr)", "Carga Patronal (IMSS+ISN)"], "Monto": [neto, isr+imss_obrero, imss_patronal+isn]})
-                colors = ['#34d399', '#f87171', '#a78bfa']
-            else:
-                # Gráfica Empleado
-                source = pd.DataFrame({"Rubro": ["Neto", "ISR", "IMSS"], "Monto": [neto, isr, imss_obrero]})
-                colors = ['#34d399', '#60a5fa', '#fbbf24']
-                
+            source = pd.DataFrame({"Rubro": ["Neto", "ISR", "IMSS"], "Monto": [neto, isr_periodo, imss_obrero]})
             base = alt.Chart(source).encode(theta=alt.Theta("Monto", stack=True))
             pie = base.mark_arc(innerRadius=70, outerRadius=110).encode(
-                color=alt.Color("Rubro", scale=alt.Scale(range=colors), legend=alt.Legend(orient="bottom", titleColor="white", labelColor="white")),
+                color=alt.Color("Rubro", scale=alt.Scale(range=['#34d399', '#60a5fa', '#fbbf24']), legend=alt.Legend(orient="bottom", titleColor="white", labelColor="white")),
                 tooltip=["Rubro", alt.Tooltip("Monto", format="$,.2f")]
             ).configure_view(strokeWidth=0).configure(background='transparent')
             st.altair_chart(pie, use_container_width=True)
             
         with col_i:
-            if ver_patronal:
-                sobrecosto = ((costo_total / bruto) - 1) * 100
-                html_code = f"""
-                <div class="insight-card" style="border-left-color: #a78bfa;">
-                    <span style="color:#94a3b8; font-weight:700;">🏢 SOBRECOSTO LABORAL</span><br>
-                    <span style="color:#cbd5e1;">Por cada $1.00 de sueldo, la empresa paga realmente:</span> 
-                    <span style="font-size:1.5em; font-weight:800; color:#a78bfa;">${(costo_total/bruto):.2f}</span>
-                    <br><span style="font-size:0.9em; color:#94a3b8;">(+{sobrecosto:.1f}% de carga social e impuestos).</span>
-                </div>
-                """
-            else:
-                horas = dias_pago * 8
-                valor_hora = neto / horas
-                meses_gob = ((isr+imss_obrero)/bruto) * 12
-                html_code = f"""
-                <div class="insight-card" style="border-left-color: #34d399;">
-                    <span style="color:#94a3b8; font-weight:700;">💰 TU HORA REAL</span><br>
-                    <span style="color:#cbd5e1;">Realmente ganas:</span> <span style="font-size:1.5em; font-weight:800; color:#34d399;">${valor_hora:.2f} MXN</span>/hora.
-                </div>
-                <div class="insight-card" style="border-left-color: #f87171;">
-                    <span style="color:#94a3b8; font-weight:700;">🏛️ CARGA LABORAL</span><br>
-                    <span style="color:#cbd5e1;">Trabajas:</span> <span style="font-size:1.5em; font-weight:800; color:#f87171;">{meses_gob:.1f} meses</span> al año para impuestos.
-                </div>
-                """
+            horas = dias_pago * 8
+            valor_hora = neto / horas
+            meses_gob = ((isr_periodo+imss_obrero)/bruto_periodo) * 12 if bruto_periodo > 0 else 0
+            
+            html_code = f"""
+            <div class="insight-card" style="border-left-color: #34d399;">
+                <span style="color:#94a3b8; font-weight:700;">💰 TU HORA REAL</span><br>
+                <span style="color:#cbd5e1;">Realmente ganas:</span> <span style="font-size:1.5em; font-weight:800; color:#34d399;">${valor_hora:.2f} MXN</span>/hora.
+            </div>
+            <div class="insight-card" style="border-left-color: #f87171;">
+                <span style="color:#94a3b8; font-weight:700;">🏛️ CARGA LABORAL</span><br>
+                <span style="color:#cbd5e1;">Trabajas:</span> <span style="font-size:1.5em; font-weight:800; color:#f87171;">{meses_gob:.1f} meses</span> al año para impuestos.
+            </div>
+            """
             st.markdown(html_code, unsafe_allow_html=True)
 
     with active_tabs[1]:
-        st.dataframe(pd.DataFrame([
-            {"Paso": "Base Mensual Proyectada", "Valor": f"${base_mensual_proy:,.2f}"},
-            {"Paso": "ISR Mensual (Tabla)", "Valor": f"${isr_mensual_proy:,.2f}"},
-            {"Paso": "Factor Periodo", "Valor": f"{dias_pago/dias_mes_base:.4f}"},
-            {"Paso": "ISR Retenido", "Valor": f"${isr:,.2f}"}
-        ]), use_container_width=True, hide_index=True)
+        if es_salario_minimo:
+            st.info("Ingreso exento de ISR por ser Salario Mínimo de la zona.")
+        elif es_ajuste:
+            st.info("Cálculo basado en Ajuste Mensual.")
+            st.dataframe(pd.DataFrame([
+                {"Concepto": "Ingreso Acumulado Mes", "Monto": f"${(ingreso_acumulado_prev+bruto_periodo):,.2f}"},
+                {"Concepto": "ISR Total del Mes", "Monto": f"${(isr_periodo+isr_retenido_prev):,.2f}"},
+                {"Concepto": "(-) ISR Pagado Antes", "Monto": f"-${isr_retenido_prev:,.2f}"},
+                {"Concepto": "(=) ISR a Retener Hoy", "Monto": f"${isr_periodo:,.2f}"}
+            ]), use_container_width=True, hide_index=True)
+        else:
+            base_mensual_proy = sueldo_diario * dias_mes_base
+            isr_mensual_proy, _ = calcular_isr_engine(base_mensual_proy, TABLA_ISR_MENSUAL)
+            st.dataframe(pd.DataFrame([
+                {"Paso": "Base Mensual Proyectada", "Valor": f"${base_mensual_proy:,.2f}"},
+                {"Paso": "ISR Mensual (Tabla)", "Valor": f"${isr_mensual_proy:,.2f}"},
+                {"Paso": "Factor Periodo", "Valor": f"{dias_pago/dias_mes_base:.4f}"},
+                {"Paso": "ISR Retenido", "Valor": f"${isr_periodo:,.2f}"}
+            ]), use_container_width=True, hide_index=True)
         
     with active_tabs[2]:
         df_obr = pd.DataFrame(list(df_imss_obr.items()), columns=["Concepto", "Monto"])
         st.dataframe(df_obr.style.format({"Monto": "${:,.2f}"}), use_container_width=True, hide_index=True)
         
-    if ver_patronal:
-        with active_tabs[3]:
-            st.dataframe(pd.DataFrame(list(df_imss_pat.items()), columns=["Concepto Patronal", "Monto"]).style.format({"Monto": "${:,.2f}"}), use_container_width=True, hide_index=True)
+    with active_tabs[3]:
+        # PESTAÑA DEDICADA AL PATRÓN
+        st.markdown("#### 🏢 Costo Real para la Empresa")
+        
+        c_p1, c_p2, c_p3 = st.columns(3)
+        with c_p1: st.metric("Sueldo Bruto", f"${bruto_periodo:,.2f}")
+        with c_p2: st.metric("Carga Social Total", f"${imss_patronal+isn:,.2f}", delta=f"{((imss_patronal+isn)/bruto_periodo)*100:.1f}% Extra", delta_color="inverse")
+        with c_p3: st.metric("Costo Total Nómina", f"${costo_total:,.2f}")
+        
+        st.markdown("---")
+        st.markdown("##### Desglose Carga Patronal")
+        df_pat = pd.DataFrame(list(df_imss_pat.items()), columns=["Concepto IMSS/INFONAVIT", "Monto"])
+        df_pat.loc[len(df_pat)] = ["Impuesto Sobre Nómina (ISN)", isn]
+        st.dataframe(df_pat.style.format({"Monto": "${:,.2f}"}), use_container_width=True, hide_index=True)
 
 # ==============================================================================
 # MÓDULO 2: AGUINALDO
@@ -377,7 +411,9 @@ elif modulo == "Finiquito y Liquidación":
     monto_aguinaldo = prop_dias_aguinaldo * sd
     monto_vac = dias_vac_pend * sd
     monto_prima_vac = monto_vac * 0.25
-    tope_prima = 2 * VALORES_2026["SALARIO_MINIMO"]
+    
+    # === CORRECCIÓN: TOPE PRIMA ANTIGÜEDAD BASADO EN SM DE LA ZONA ===
+    tope_prima = 2 * sm_aplicable
     base_prima = min(sd, tope_prima)
     prima_antiguedad = 0
     
