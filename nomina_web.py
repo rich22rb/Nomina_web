@@ -2,214 +2,205 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 
-st.set_page_config(page_title="Nómina 2026: Auditoría Total", page_icon="🕵️", layout="wide")
+st.set_page_config(page_title="Nómina 2026 Oficial", page_icon="🇲🇽", layout="wide")
 
-# --- 1. CONSTANTES OFICIALES 2026 ---
+# --- 1. DATOS OFICIALES 2026 (Confirmados) ---
 VALORES_2026 = {
-    "UMA_DIARIA": 117.31,
-    "SALARIO_MINIMO": 315.04,
-    "SALARIO_MINIMO_FN": 440.87,
+    "UMA_DIARIA": 117.31,         # Fuente: INEGI 2026
+    "SALARIO_MINIMO": 315.04,     # Fuente: CONASAMI 2026
+    "SALARIO_MINIMO_FN": 440.87,  # Zona Frontera
     "TOPE_IMSS_UMAS": 25,
-    "PRIMA_VACACIONAL_TASA": 0.25  # 25% de ley
+    "PRIMA_VACACIONAL": 0.25
 }
 
-TABLA_ISR_MENSUAL = [
-    [0.01, 0.00, 0.0192],
-    [746.05, 14.32, 0.0640],
-    [6332.06, 371.83, 0.1088],
-    [11128.02, 893.63, 0.1600],
-    [12935.83, 1182.88, 0.1792],
-    [15487.72, 1640.18, 0.2136],
-    [31236.46, 5004.12, 0.2352],
-    [49233.01, 9236.89, 0.3000],
-    [93993.91, 22665.17, 0.3200],
-    [125325.21, 32691.18, 0.3400],
-    [375975.62, 117912.32, 0.3500]
+# NUEVA TABLA ISR 2026 (Actualizada por inflación >10%)
+# Fuente: Anexo 8 RMF 2026
+TABLA_ISR_MENSUAL_2026 = [
+    # Limite Inf, Cuota Fija, % Excedente
+    [0.01,          0.00,       0.0192],
+    [844.60,        16.22,      0.0640],
+    [7168.52,       420.95,     0.1088],
+    [12598.03,      1011.68,    0.1600],
+    [14644.65,      1339.14,    0.1792],
+    [17533.65,      1856.84,    0.2136],
+    [35362.84,      5665.16,    0.2352],
+    [55736.69,      10457.09,   0.3000],
+    [106410.51,     25659.23,   0.3200],
+    [141880.67,     37009.69,   0.3400],
+    [425642.00,     133488.54,  0.3500]
 ]
 
-# --- 2. LÓGICA DE NEGOCIO ---
+# --- 2. FUNCIONES DE CÁLCULO (Motor de Nómina) ---
 
-def obtener_datos_antiguedad(anios_cumplidos):
+def obtener_factor_integracion(anios, meses):
     """
-    Define días de vacaciones según LFT y Factor de Integración.
-    Corrección: Si tienes 1 año cumplido, cotizas con prestaciones del año 2.
+    Calcula prestaciones según antigüedad real.
+    Regla: Si tienes 1 año cumplido, cotizas con prestaciones de año 2.
     """
-    if anios_cumplidos == 0: dias_vac = 12
-    elif anios_cumplidos == 1: dias_vac = 14
-    elif anios_cumplidos == 2: dias_vac = 16
-    elif anios_cumplidos == 3: dias_vac = 18
-    elif anios_cumplidos == 4: dias_vac = 20
-    elif 5 <= anios_cumplidos <= 9: dias_vac = 22
-    elif 10 <= anios_cumplidos <= 14: dias_vac = 24
+    anios_efectivos = anios if anios > 0 else 0
+    # Ajuste: Si ya cumplió el año, empieza a correr el siguiente escalón
+    if anios > 0 or meses > 0: 
+        # Si tiene >0 tiempo, validamos en qué escalón de LFT cae
+        pass 
+    
+    # Tabla Vacaciones Dignas (Días por año cumplido o cursando)
+    if anios == 0: dias_vac = 12
+    elif anios == 1: dias_vac = 14
+    elif anios == 2: dias_vac = 16
+    elif anios == 3: dias_vac = 18
+    elif anios == 4: dias_vac = 20
+    elif 5 <= anios <= 9: dias_vac = 22
+    elif 10 <= anios <= 14: dias_vac = 24
     else: dias_vac = 26
     
     dias_aguinaldo = 15
-    prima_tasa = VALORES_2026["PRIMA_VACACIONAL_TASA"]
+    prima_vac = VALORES_2026["PRIMA_VACACIONAL"]
     
-    # FÓRMULA DEL FACTOR DE INTEGRACIÓN
-    # (Días Aguinaldo + (Días Vacaciones * Prima)) / 365
-    numerador = dias_aguinaldo + (dias_vac * prima_tasa)
-    factor = 1 + (numerador / 365)
-    
-    return factor, dias_vac, dias_aguinaldo
+    # Factor = 1 + (Proporción diaria de prestaciones)
+    factor = 1 + ((dias_aguinaldo + (dias_vac * prima_vac)) / 365)
+    return factor, dias_vac
 
-def calcular_desglose_imss(sbc, dias_cotizados):
-    uma = VALORES_2026["UMA_DIARIA"]
-    
-    # Cálculos por rama
-    exc_3uma_base = max(0, sbc - (3*uma))
-    cuota_exc = exc_3uma_base * 0.004 * dias_cotizados
-    
-    cuota_dinero = sbc * 0.0025 * dias_cotizados
-    cuota_medicos = sbc * 0.00375 * dias_cotizados
-    cuota_invalidez = sbc * 0.00625 * dias_cotizados
-    cuota_cesantia = sbc * 0.01125 * dias_cotizados
-    
-    total = cuota_exc + cuota_dinero + cuota_medicos + cuota_invalidez + cuota_cesantia
-    
-    # DataFrame para la tabla bonita
-    df = pd.DataFrame({
-        "Concepto IMSS": [
-            "Enf. y Mat. (Excedente)", 
-            "Prestaciones en Dinero", 
-            "Gastos Médicos Pens.", 
-            "Invalidez y Vida", 
-            "Cesantía y Vejez"
-        ],
-        "Base Diario": [f"${exc_3uma_base:,.2f}", f"${sbc:,.2f}", f"${sbc:,.2f}", f"${sbc:,.2f}", f"${sbc:,.2f}"],
-        "Cuota ($)": [cuota_exc, cuota_dinero, cuota_medicos, cuota_invalidez, cuota_cesantia]
-    })
-    return total, df
+def generar_tabla_periodo(tabla_mensual, dias_pago, dias_mes_base=30.4):
+    """
+    Ajusta la tabla mensual a quincenal/semanal matemáticamente.
+    """
+    factor = dias_mes_base / dias_pago
+    tabla_ajustada = []
+    for renglon in tabla_mensual:
+        limite = renglon[0] / factor
+        cuota = renglon[1] / factor
+        porcentaje = renglon[2]
+        tabla_ajustada.append([limite, cuota, porcentaje])
+    return tabla_ajustada
 
-def calcular_desglose_isr(base_gravable):
+def calcular_isr_exacto(sueldo_periodo, tabla_periodo):
     limite, cuota, porc = 0, 0, 0
-    for row in TABLA_ISR_MENSUAL:
-        if base_gravable >= row[0]:
+    for row in tabla_periodo:
+        if sueldo_periodo >= row[0]:
             limite, cuota, porc = row[0], row[1], row[2]
         else:
-            break
+            break # Se queda con el renglón anterior
             
-    excedente = base_gravable - limite
+    excedente = sueldo_periodo - limite
     marginal = excedente * porc
     isr = marginal + cuota
     
-    df = pd.DataFrame({
-        "Operación ISR": [
-            "1. Base Gravable", 
-            "2. (-) Límite Inferior", 
-            "3. (=) Excedente", 
-            "4. (x) Tasa %", 
-            "5. (=) Impuesto Marginal", 
-            "6. (+) Cuota Fija", 
-            "7. (=) ISR Determinado"
-        ],
-        "Monto": [base_gravable, limite, excedente, porc, marginal, cuota, isr]
-    })
-    return isr, df
+    return isr, {
+        "Base": sueldo_periodo, "Límite Inf.": limite, 
+        "Excedente": excedente, "Tasa": porc, 
+        "Cuota Fija": cuota, "ISR": isr
+    }
 
-# --- 3. INTERFAZ ---
-st.title("🕵️ Nómina 2026: Auditoría Detallada")
+def calcular_imss_periodo(sbc, dias_pago):
+    uma = VALORES_2026["UMA_DIARIA"]
+    
+    # Fórmulas de cuotas obreras 2026
+    excedente = max(0, sbc - (3*uma))
+    
+    cuotas = {
+        "Enf. y Mat. (Exc)": excedente * 0.004 * dias_pago,
+        "Prest. Dinero": sbc * 0.0025 * dias_pago,
+        "Gastos Médicos": sbc * 0.00375 * dias_pago,
+        "Invalidez y Vida": sbc * 0.00625 * dias_pago,
+        "Cesantía y Vejez": sbc * 0.01125 * dias_pago
+    }
+    
+    total = sum(cuotas.values())
+    return total, cuotas
+
+# --- 3. INTERFAZ GRÁFICA ---
+st.title("💼 Nómina 2026 (Datos Oficiales)")
 
 with st.sidebar:
     st.header("1. Configuración de Pago")
-    sueldo_bruto = st.number_input("Sueldo Mensual Bruto", value=25000.0, step=100.0)
-    periodo = st.selectbox("Frecuencia", ["Quincenal", "Mensual", "Semanal"])
-    criterio_dias = st.radio("Días del Mes (Criterio)", ["Técnico (30.4)", "Comercial (30)"])
+    monto = st.number_input("Sueldo Bruto", value=15000.0, step=100.0)
+    tipo_sueldo = st.radio("El sueldo ingresado es:", ["Mensual", "Quincenal"], horizontal=True)
+    periodo_pago = st.selectbox("Frecuencia de Pago", ["Quincenal", "Mensual", "Semanal"])
     
     st.markdown("---")
-    st.header("2. Antigüedad")
+    st.header("2. Datos Laborales")
+    criterio_dias = st.radio("Días de Cálculo", ["Ley (30.4)", "Comercial (30)"])
     col_a, col_m = st.columns(2)
-    with col_a: anios = st.number_input("Años", 0, 40, 1)
+    with col_a: anios = st.number_input("Años", 0, 50, 0)
     with col_m: meses = st.number_input("Meses", 0, 11, 0)
     
-    st.markdown("---")
-    if st.button("CALCULAR DESGLOSE ▶️", type="primary"):
+    if st.button("CALCULAR NÓMINA ▶️", type="primary"):
         st.session_state.run = True
 
-# --- 4. PROCESAMIENTO ---
+# --- 4. LÓGICA DE EJECUCIÓN ---
 if "run" in st.session_state:
     
-    # A. DEFINICIÓN DE TIEMPOS
-    dias_mes = 30.4 if criterio_dias == "Técnico (30.4)" else 30
+    # A. Normalizar tiempos
+    dias_mes = 30.4 if criterio_dias == "Ley (30.4)" else 30.0
     
-    if periodo == "Mensual": dias_periodo = dias_mes
-    elif periodo == "Quincenal": dias_periodo = dias_mes / 2
-    elif periodo == "Semanal": dias_periodo = dias_mes / (30.4/7) # Aprox 7 días ajustados
-    if periodo == "Semanal" and criterio_dias == "Comercial (30)": dias_periodo = 7 # Ajuste forzado comercial
+    if periodo_pago == "Mensual": dias_periodo = dias_mes
+    elif periodo_pago == "Quincenal": dias_periodo = dias_mes / 2
+    elif periodo_pago == "Semanal": dias_periodo = 7
     
-    factor_proyeccion = dias_mes / dias_periodo
-    
-    # B. CÁLCULO SBC
-    sueldo_diario = sueldo_bruto / dias_mes
-    factor_int, dias_vac, dias_agui = obtener_datos_antiguedad(anios)
+    # B. Determinar Sueldo Diario y del Periodo
+    if tipo_sueldo == "Mensual":
+        sueldo_diario = monto / dias_mes
+        sueldo_periodo = sueldo_diario * dias_periodo
+    else: # Quincenal
+        # Si ingresó 10k quincenales, mensual es 20k aprox (según criterio)
+        sueldo_periodo_input = monto
+        factor_conv = dias_mes / (dias_mes/2) # ~2
+        sueldo_diario = (sueldo_periodo_input * factor_conv) / dias_mes
+        sueldo_periodo = sueldo_diario * dias_periodo
+
+    # C. Validar Salario Mínimo 2026
+    minimo = VALORES_2026["SALARIO_MINIMO"]
+    if sueldo_diario < minimo:
+        st.error(f"⚠️ El sueldo diario (${sueldo_diario:.2f}) es menor al Mínimo 2026 (${minimo}). Ajustando cálculo al mínimo.")
+        sueldo_diario = minimo
+        sueldo_periodo = sueldo_diario * dias_periodo
+
+    # D. Calcular SBC
+    factor_int, dias_vac = obtener_factor_integracion(anios, meses)
     sbc = sueldo_diario * factor_int
+    sbc_tope = min(sbc, VALORES_2026["UMA_DIARIA"] * 25)
+
+    # E. Calcular Impuestos
+    # 1. IMSS
+    imss_total, desglose_imss = calcular_imss_periodo(sbc_tope, dias_periodo)
     
-    # Tope UMA
-    tope = VALORES_2026["UMA_DIARIA"] * 25
-    sbc_real = min(sbc, tope)
+    # 2. ISR (Tabla Ajustada)
+    tabla_ajustada = generar_tabla_periodo(TABLA_ISR_MENSUAL_2026, dias_periodo, dias_mes)
+    isr_total, desglose_isr = calcular_isr_exacto(sueldo_periodo, tabla_ajustada)
     
-    # C. CÁLCULO IMPUESTOS (MENSUALIZADOS)
-    # IMSS
-    imss_mes, df_imss = calcular_desglose_imss(sbc_real, dias_mes)
-    imss_periodo = imss_mes / factor_proyeccion
+    neto = sueldo_periodo - imss_total - isr_total
     
-    # ISR
-    base_isr_mes = sueldo_diario * dias_mes
-    isr_mes, df_isr = calcular_desglose_isr(base_isr_mes)
-    isr_periodo = isr_mes / factor_proyeccion
+    # --- RESULTADOS ---
+    st.success(f"Cálculo con Tablas 2026 Actualizadas (Límite Inf. Mensual: ${TABLA_ISR_MENSUAL_2026[1][0]:,.2f})")
     
-    # D. RESULTADOS FINALES
-    bruto_periodo = sueldo_bruto / factor_proyeccion
-    neto_periodo = bruto_periodo - isr_periodo - imss_periodo
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Sueldo Periodo", f"${sueldo_periodo:,.2f}")
+    c2.metric("ISR Retenido", f"-${isr_total:,.2f}", delta_color="inverse")
+    c3.metric("IMSS Retenido", f"-${imss_total:,.2f}", delta_color="inverse")
+    c4.metric("NETO A PAGAR", f"${neto:,.2f}", delta_color="normal")
     
-    # --- VISUALIZACIÓN ---
-    
-    # 1. TARJETAS DE RESUMEN
-    st.success(f"Cálculo para: **{anios} años, {meses} meses** | Criterio: **{criterio_dias}**")
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Sueldo Bruto", f"${bruto_periodo:,.2f}")
-    k2.metric("ISR", f"-${isr_periodo:,.2f}", delta_color="inverse")
-    k3.metric("IMSS", f"-${imss_periodo:,.2f}", delta_color="inverse")
-    k4.metric("NETO A PAGAR", f"${neto_periodo:,.2f}", delta_color="normal")
-    
-    st.divider()
-    
-    # 2. SISTEMA DE PESTAÑAS (Aquí está la magia)
-    tab1, tab2, tab3 = st.tabs(["📊 Resumen & Factores", "🏥 Desglose IMSS", "⚖️ Auditoría ISR"])
+    # Desglose en Pestañas
+    tab1, tab2, tab3 = st.tabs(["📊 Resumen", "🏛️ Detalle ISR", "🏥 Detalle IMSS"])
     
     with tab1:
-        c_graf, c_dato = st.columns([1, 1])
-        with c_graf:
-            d = pd.DataFrame({'Concepto':['Neto','ISR','IMSS'], 'Monto':[neto_periodo, isr_periodo, imss_periodo]})
-            chart = alt.Chart(d).mark_arc(innerRadius=50).encode(theta="Monto", color="Concepto", tooltip=["Concepto", "Monto"])
-            st.altair_chart(chart, use_container_width=True)
+        col_L, col_R = st.columns(2)
+        with col_L:
+            df_chart = pd.DataFrame({'C':['Neto','ISR','IMSS'], 'V':[neto, isr_total, imss_total]})
+            c = alt.Chart(df_chart).mark_arc(innerRadius=60).encode(theta='V', color='C', tooltip=['C','V'])
+            st.altair_chart(c, use_container_width=True)
+        with col_R:
+            st.caption("Datos Técnicos:")
+            st.write(f"**UMA 2026:** ${VALORES_2026['UMA_DIARIA']}")
+            st.write(f"**Salario Mínimo:** ${minimo}")
+            st.write(f"**SBC:** ${sbc_tope:,.2f}")
+            st.write(f"**Factor Integración:** {factor_int:.4f}")
             
-        with c_dato:
-            st.subheader("¿Cómo se integra tu salario?")
-            st.write(f"**Sueldo Diario:** ${sueldo_diario:,.2f}")
-            st.write(f"**SBC (Base Cotización):** ${sbc_real:,.2f}")
-            st.write(f"**Factor Integración:** {factor_int:.6f}")
-            st.info(f"""
-            **Tus Prestaciones (Año {anios+1}):**
-            * 🏖️ Vacaciones: **{dias_vac} días**
-            * 💰 Prima Vacacional: **25%** (Considerada en Factor)
-            * 🎄 Aguinaldo: **{dias_agui} días**
-            """)
-
     with tab2:
-        st.subheader(f"Detalle de Cuotas IMSS ({periodo})")
-        # Ajustamos la tabla mensual al periodo para que cuadre con el descuento
-        df_imss["Cuota ($)"] = df_imss["Cuota ($)"] / factor_proyeccion
-        st.dataframe(df_imss.style.format({"Cuota ($)": "${:,.2f}"}), hide_index=True, use_container_width=True)
-        st.caption("*Estas cuotas son las que le corresponden al trabajador (Obreras).")
-
-    with tab3:
-        st.subheader("Cálculo del ISR (Mensual Proyectado)")
-        # Función para formatear bonito
-        def fmt(x): return f"{x*100:.2f}%" if x < 1 and x > 0 else f"${x:,.2f}"
+        st.subheader(f"Tabla ISR Ajustada ({periodo_pago})")
+        st.write("Tu cálculo se realizó sobre esta base:")
+        # Mostrar solo los datos relevantes del cálculo
+        st.json(desglose_isr)
         
-        st.table(df_isr.assign(Monto=df_isr["Monto"].apply(fmt)))
-        st.success(f"ISR Mensual: ${isr_mes:,.2f} ÷ Factor {factor_proyeccion:.2f} = **${isr_periodo:,.2f}** a retener.")
-
-else:
-    st.info("👈 Configura la nómina en el menú lateral.")
+    with tab3:
+        st.subheader("Cuotas IMSS Obreras")
+        st.dataframe(pd.DataFrame(list(desglose_imss.items()), columns=["Rama", "Monto"]).style.format({"Monto":"${:,.2f}"}), use_container_width=True)
