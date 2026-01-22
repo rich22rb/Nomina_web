@@ -49,10 +49,10 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 3. MOTORES DE CÁLCULO ---
+# --- 3. CÁLCULO ---
 
 def calcular_isr_proyeccion(sueldo_diario, dias_pago, dias_mes_base):
-    # Lógica PRO: Elevamos a mensual -> Calculamos -> Prorrateamos
+    # Proyección
     base_mensual = sueldo_diario * dias_mes_base
     
     limite, cuota, porc = 0, 0, 0
@@ -65,7 +65,7 @@ def calcular_isr_proyeccion(sueldo_diario, dias_pago, dias_mes_base):
     marginal = excedente * porc
     isr_mensual = marginal + cuota
     
-    # Factor de ajuste (Aquí es donde Fiscal vs Comercial hace la magia)
+    # Prorrateo
     factor = dias_pago / dias_mes_base
     isr_periodo = isr_mensual * factor
     
@@ -77,7 +77,7 @@ def calcular_isr_proyeccion(sueldo_diario, dias_pago, dias_mes_base):
         "5. (=) Impuesto Marginal": marginal,
         "6. (+) Cuota Fija": cuota,
         "7. (=) ISR Mensual Total": isr_mensual,
-        f"8. (x) Factor ({dias_pago}/{dias_mes_base})": factor, # Mostrar el factor explícito
+        f"8. (x) Factor ({dias_pago}/{dias_mes_base})": factor,
         "9. (=) ISR A RETENER": isr_periodo
     }
     return isr_periodo, desglose
@@ -99,41 +99,32 @@ def calcular_imss_detallado(sbc, dias):
 st.title("💎 Nómina 2026 Pro")
 
 with st.container(border=True):
-    # FILA 1: Configuración Global
+    # FILA 1
     c1, c2, c3, c4 = st.columns(4)
-    
     with c1:
         criterio = st.selectbox("Criterio Días", ["Comercial (30)", "Fiscal (30.4)"])
-        # CORRECCIÓN DEL BUG: Usamos "Comercial" explícitamente
         dias_mes_base = 30.0 if "Comercial" in criterio else 30.4
-    
     with c2:
-        periodo = st.selectbox("Frecuencia", ["Quincenal", "Semanal", "Mensual", "Catorcenal"])
+        periodo = st.selectbox("Frecuencia", ["Quincenal", "Semanal", "Mensual"])
         if periodo == "Quincenal": dias_pago = 15
         elif periodo == "Semanal": dias_pago = 7
-        elif periodo == "Mensual": dias_pago = dias_mes_base
-        else: dias_pago = 14
-        
+        else: dias_pago = dias_mes_base
     with c3:
-        # MEJORA: Tipo de Entrada
         tipo_ingreso = st.selectbox("Tipo de Ingreso", ["Bruto Mensual", "Bruto por Periodo"])
-    
     with c4:
         monto_input = st.number_input(f"Monto {tipo_ingreso}", value=15000.0, step=500.0)
         
-        # Lógica de conversión a Diario (El corazón del cálculo)
         if tipo_ingreso == "Bruto Mensual":
             sueldo_diario = monto_input / dias_mes_base
         else:
-            # Si ingresa por periodo, lo convertimos a diario directo
             sueldo_diario = monto_input / dias_pago
 
-    # FILA 2: Datos Adicionales
+    # FILA 2
     c5, c6 = st.columns([1, 3])
     with c5:
         antig = st.number_input("Años Antigüedad", 0, 50, 0)
     with c6:
-        st.info(f"💡 **Base de Cálculo:** ${sueldo_diario:,.2f} diarios × {dias_mes_base} días mes = **${sueldo_diario*dias_mes_base:,.2f}** Mensual Integrado.")
+        st.info(f"💡 **Base de Cálculo:** ${sueldo_diario:,.2f} diarios × {dias_mes_base} días = **${sueldo_diario*dias_mes_base:,.2f}** Base Mensual Integrada.")
 
     if st.button("Calcular Nómina 🚀", type="primary", use_container_width=True):
         st.session_state.run = True
@@ -142,7 +133,7 @@ with st.container(border=True):
 if "run" in st.session_state:
     st.divider()
     
-    # 1. Ejecución
+    # Cálculos
     if antig == 0: dias_vac = 12
     else: dias_vac = 14
     factor_int = 1 + ((15 + (dias_vac*0.25))/365)
@@ -153,43 +144,55 @@ if "run" in st.session_state:
     isr, df_isr_raw = calcular_isr_proyeccion(sueldo_diario, dias_pago, dias_mes_base)
     neto = bruto - imss - isr
     
-    # 2. Tarjetas
+    # 2. Tarjetas (USANDO HTML ENTITY &#36; PARA ELIMINAR DIAGONALES)
     k1, k2, k3, k4 = st.columns(4)
     with k1:
-        st.markdown(f"""<div class="metric-card"><small>Percepción {periodo}</small><div class="metric-value">\${bruto:,.2f}</div></div>""", unsafe_allow_html=True)
+        st.markdown(f"""<div class="metric-card"><small>Percepción {periodo}</small><div class="metric-value">&#36;{bruto:,.2f}</div></div>""", unsafe_allow_html=True)
     with k2:
-        st.markdown(f"""<div class="metric-card"><small>ISR Retenido</small><div class="metric-value deduction-value">-\${isr:,.2f}</div></div>""", unsafe_allow_html=True)
+        st.markdown(f"""<div class="metric-card"><small>ISR Retenido</small><div class="metric-value deduction-value">-&#36;{isr:,.2f}</div></div>""", unsafe_allow_html=True)
     with k3:
-        st.markdown(f"""<div class="metric-card"><small>IMSS Retenido</small><div class="metric-value deduction-value">-\${imss:,.2f}</div></div>""", unsafe_allow_html=True)
+        st.markdown(f"""<div class="metric-card"><small>IMSS Retenido</small><div class="metric-value deduction-value">-&#36;{imss:,.2f}</div></div>""", unsafe_allow_html=True)
     with k4:
-        st.markdown(f"""<div class="metric-card" style="border: 2px solid #059669;"><small style="color:#059669 !important;">Neto a Pagar</small><div class="metric-value neto-value">\${neto:,.2f}</div></div>""", unsafe_allow_html=True)
+        st.markdown(f"""<div class="metric-card" style="border: 2px solid #059669;"><small style="color:#059669 !important;">Neto a Pagar</small><div class="metric-value neto-value">&#36;{neto:,.2f}</div></div>""", unsafe_allow_html=True)
 
     # 3. Pestañas
-    tab_visual, tab_isr, tab_imss = st.tabs(["📊 Distribución", "🏛️ Auditoría ISR", "🏥 Auditoría IMSS"])
+    tab_visual, tab_isr, tab_imss = st.tabs(["🧠 Análisis Inteligente", "🏛️ Auditoría ISR", "🏥 Auditoría IMSS"])
     
     with tab_visual:
-        c1, c2 = st.columns([1, 2])
-        with c1:
+        c_chart, c_data = st.columns([1, 2])
+        
+        with c_chart:
             source = pd.DataFrame({"Concepto": ["Neto", "ISR", "IMSS"], "Monto": [neto, isr, imss]})
             base = alt.Chart(source).encode(theta=alt.Theta("Monto", stack=True))
-            pie = base.mark_arc(innerRadius=60, outerRadius=100).encode(
+            pie = base.mark_arc(innerRadius=60, outerRadius=90).encode(
                 color=alt.Color("Concepto", scale=alt.Scale(domain=['Neto', 'ISR', 'IMSS'], range=['#059669', '#3b82f6', '#f59e0b'])),
                 tooltip=["Concepto", alt.Tooltip("Monto", format="$,.2f")]
             )
             st.altair_chart(pie, use_container_width=True)
-        with c2:
-            st.write("### Análisis de Impacto")
-            st.write(f"- Factor de Días usado: **{dias_mes_base}** ({criterio})")
-            st.write(f"- Sueldo Diario Base: **\${sueldo_diario:,.2f}**")
-            st.caption("Si cambias entre Fiscal/Comercial, observa cómo cambia el Sueldo Diario y por tanto la Base Gravable.")
+            
+        with c_data:
+            # ANÁLISIS MEJORADO Y PROFUNDO
+            impuestos_totales = isr + imss
+            dias_para_impuestos = impuestos_totales / sueldo_diario
+            tasa_efectiva = (impuestos_totales / bruto) * 100
+            proyeccion_anual = impuestos_totales * (365 / dias_pago)
+            
+            st.markdown("#### 📉 Impacto en tu Bolsillo")
+            st.markdown(f"""
+            * **Día de Libertad Fiscal:** En este periodo de {dias_pago} días, trabajaste **{dias_para_impuestos:.1f} días** solo para pagar impuestos (ISR + IMSS). El resto es tuyo.
+            * **Tasa Real vs Tablas:** Aunque caíste en el renglón del **{df_isr_raw['4. (x) Tasa Aplicable']*100:.2f}%** de la tabla, tu tasa *real efectiva* es del **{tasa_efectiva:.1f}%**.
+            * **Proyección Anual:** A este ritmo, el gobierno recaudará aproximadamente **${proyeccion_anual:,.2f}** de tu trabajo este año.
+            """)
+            
+            st.progress(tasa_efectiva/100, text=f"Porcentaje del sueldo destinado a impuestos: {tasa_efectiva:.1f}%")
 
     with tab_isr:
         st.subheader("Mecánica de Cálculo")
         df_audit = pd.DataFrame(list(df_isr_raw.items()), columns=["Paso", "Valor"])
         def fmt(x, p):
-            if "Factor" in p: return f"{x:.4f}" # Mostrar 4 decimales en el factor
+            if "Factor" in p: return f"{x:.4f}"
             if "Tasa" in p: return f"{x*100:.2f}%"
-            return f"\${x:,.2f}"
+            return f"${x:,.2f}"
         df_audit["Valor"] = df_audit.apply(lambda x: fmt(x["Valor"], x["Paso"]), axis=1)
         st.dataframe(df_audit, hide_index=True, use_container_width=True)
 
@@ -198,4 +201,4 @@ if "run" in st.session_state:
         df_imss = pd.DataFrame(list(df_imss_raw.items()), columns=["Concepto", "Monto"])
         total_row = pd.DataFrame([{"Concepto": "TOTAL IMSS", "Monto": imss}])
         df_imss = pd.concat([df_imss, total_row], ignore_index=True)
-        st.dataframe(df_imss.style.format({"Monto": "\${:,.2f}"}), hide_index=True, use_container_width=True)
+        st.dataframe(df_imss.style.format({"Monto": "${:,.2f}"}), hide_index=True, use_container_width=True)
