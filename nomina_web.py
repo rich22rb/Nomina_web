@@ -30,28 +30,28 @@ TABLA_ISR_MENSUAL = [
     {"limite": 425642.00, "cuota": 133488.54, "porc": 0.3500},
 ]
 
-# --- CSS "DARK MODE PRO" ---
+# --- CSS PRO (DARK MODE) ---
 st.markdown("""
 <style>
-    /* FONDO PRINCIPAL OSCURO */
+    /* FONDO PRINCIPAL */
     .stApp {
         background-color: #0f172a; /* Slate 900 */
         color: #f8fafc;
     }
     
-    /* SIDEBAR OSCURO */
+    /* SIDEBAR */
     [data-testid="stSidebar"] {
         background-color: #1e293b; /* Slate 800 */
         border-right: 1px solid #334155;
     }
 
-    /* TARJETAS KPI (GLASSMORPHISM) */
+    /* TARJETAS KPI */
     .dark-card {
         background-color: #1e293b;
         border: 1px solid #334155;
         border-radius: 12px;
         padding: 20px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
         text-align: center;
     }
     
@@ -62,7 +62,7 @@ st.markdown("""
     /* METRICAS */
     .kpi-label {
         font-size: 0.8rem;
-        color: #94a3b8; /* Gris claro */
+        color: #94a3b8;
         text-transform: uppercase;
         font-weight: 700;
         letter-spacing: 1px;
@@ -75,19 +75,19 @@ st.markdown("""
         font-family: 'Roboto', sans-serif;
     }
     
-    /* COLORES DE ACENTO (NEÓN) */
-    .neon-green { color: #34d399 !important; } /* Emerald 400 */
-    .neon-red { color: #f87171 !important; }   /* Red 400 */
-    .neon-blue { color: #60a5fa !important; }  /* Blue 400 */
-    .neon-gold { color: #fbbf24 !important; }  /* Amber 400 */
+    /* COLORES NEÓN */
+    .neon-green { color: #34d399 !important; } 
+    .neon-red { color: #f87171 !important; }   
+    .neon-gold { color: #fbbf24 !important; }  
+    .neon-blue { color: #60a5fa !important; }
     
-    /* TABLAS OSCURAS */
+    /* TABLAS */
     .stDataFrame {
         border: 1px solid #334155;
         border-radius: 8px;
     }
     
-    /* ARREGLO DE INPUTS (Dejar que Streamlit maneje el color, pero ajustar bordes) */
+    /* INPUTS */
     .stNumberInput input, .stSelectbox div[data-baseweb="select"] {
         background-color: #0f172a !important;
         color: white !important;
@@ -136,8 +136,9 @@ def calcular_imss_engine(sbc, dias):
     }
     return sum(conceptos.values()), conceptos
 
-# --- SIDEBAR (CONTROLES) ---
+# --- SIDEBAR ---
 with st.sidebar:
+    st.image("https://cdn-icons-png.flaticon.com/512/3135/3135810.png", width=50)
     st.markdown("### ⚡ Configuración")
     
     with st.container(border=True):
@@ -166,9 +167,9 @@ with st.sidebar:
 
     st.markdown("---")
     if st.button("CALCULAR AHORA ▶", type="primary", use_container_width=True):
-        pass # Streamlit reruns automatically
+        pass 
 
-# --- MAIN DASHBOARD ---
+# --- DASHBOARD ---
 st.markdown("## 🚀 Nómina Enterprise 2026")
 st.markdown(f"Resumen Fiscal | Base Diaria: **${sueldo_diario:,.2f}** | Días Pagados: **{dias_pago}**")
 st.markdown("---")
@@ -183,85 +184,82 @@ imss, df_imss_raw = calcular_imss_engine(sbc, dias_pago)
 isr, df_isr_raw = calcular_isr_engine(sueldo_diario, dias_pago, dias_mes_base)
 neto = bruto - imss - isr
 
-# 1. TARJETAS DE KPIS (DARK MODE)
+# 1. TARJETAS KPI
 c1, c2, c3, c4 = st.columns(4)
-
 with c1:
-    st.markdown(f"""
-    <div class="dark-card">
-        <div class="kpi-label">Ingreso Bruto</div>
-        <div class="kpi-value">${bruto:,.2f}</div>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(f"""<div class="dark-card"><div class="kpi-label">Ingreso Bruto</div><div class="kpi-value">${bruto:,.2f}</div></div>""", unsafe_allow_html=True)
 with c2:
-    st.markdown(f"""
-    <div class="dark-card">
-        <div class="kpi-label">ISR (Impuesto)</div>
-        <div class="kpi-value neon-red">-${isr:,.2f}</div>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(f"""<div class="dark-card"><div class="kpi-label">ISR (Impuesto)</div><div class="kpi-value neon-red">-${isr:,.2f}</div></div>""", unsafe_allow_html=True)
 with c3:
-    st.markdown(f"""
-    <div class="dark-card">
-        <div class="kpi-label">IMSS (Seguro)</div>
-        <div class="kpi-value neon-gold">-${imss:,.2f}</div>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(f"""<div class="dark-card"><div class="kpi-label">IMSS (Seguro)</div><div class="kpi-value neon-gold">-${imss:,.2f}</div></div>""", unsafe_allow_html=True)
 with c4:
-    st.markdown(f"""
-    <div class="dark-card" style="border: 1px solid #34d399;">
-        <div class="kpi-label neon-green">Neto a Pagar</div>
-        <div class="kpi-value neon-green">${neto:,.2f}</div>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(f"""<div class="dark-card" style="border: 1px solid #34d399;"><div class="kpi-label neon-green">Neto a Pagar</div><div class="kpi-value neon-green">${neto:,.2f}</div></div>""", unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# 2. ANÁLISIS PROFUNDO (RESTAURADO)
+# 2. ANÁLISIS DETALLADO
 tab_main, tab_isr, tab_imss = st.tabs(["🧠 Análisis Inteligente", "🏛️ Desglose ISR", "🏥 Desglose IMSS"])
 
 with tab_main:
     col_izq, col_der = st.columns([1, 2])
     
     with col_izq:
-        # Gráfica Dona con tema oscuro
+        # --- AQUÍ ESTÁ EL ARREGLO DE LA GRÁFICA ---
         source = pd.DataFrame({
             "Categoría": ["Neto (Tuyo)", "ISR (SAT)", "IMSS (Salud)"],
             "Monto": [neto, isr, imss]
         })
-        base = alt.Chart(source).encode(theta=alt.Theta("Monto", stack=True))
+        
+        # Base de la gráfica
+        base = alt.Chart(source).encode(
+            theta=alt.Theta("Monto", stack=True)
+        )
+        
+        # El anillo (Donut)
         pie = base.mark_arc(innerRadius=60, outerRadius=100).encode(
-            color=alt.Color("Categoría", scale=alt.Scale(domain=['Neto (Tuyo)', 'ISR (SAT)', 'IMSS (Salud)'], range=['#34d399', '#60a5fa', '#fbbf24'])),
+            color=alt.Color(
+                "Categoría",
+                scale=alt.Scale(
+                    domain=['Neto (Tuyo)', 'ISR (SAT)', 'IMSS (Salud)'], 
+                    range=['#34d399', '#60a5fa', '#fbbf24']
+                ),
+                legend=alt.Legend(
+                    orient='bottom',    # Leyenda abajo para no cortar
+                    titleColor='white', # Texto blanco
+                    labelColor='white'
+                )
+            ),
             tooltip=["Categoría", alt.Tooltip("Monto", format="$,.2f")]
         )
-        st.altair_chart(pie, use_container_width=True)
+        
+        # Configuración FINAL para quitar fondo y bordes
+        final_chart = pie.configure_view(
+            strokeWidth=0 # Quita el marco feo
+        ).configure(
+            background='transparent' # Quita el fondo negro/blanco
+        )
+        
+        st.altair_chart(final_chart, use_container_width=True)
         
     with col_der:
-        # LÓGICA DE ANÁLISIS AVANZADO
         total_impuestos = isr + imss
         tasa_efectiva = (total_impuestos / bruto) * 100
         dias_impuestos = total_impuestos / sueldo_diario
         proyeccion_anual = total_impuestos * (365 / dias_pago)
         
-        st.markdown("#### 💡 Insights de Impacto Financiero")
-        
         st.markdown(f"""
         <div style="background-color: #1e293b; padding: 20px; border-radius: 10px; border-left: 4px solid #60a5fa;">
             <ul style="line-height: 2;">
-                <li><b>Día de Libertad Fiscal:</b> En este periodo, trabajas <b class="neon-red">{dias_impuestos:.1f} días</b> solo para pagar impuestos. El resto es tuyo.</li>
-                <li><b>Tasa Real vs Tablas:</b> Tu tasa efectiva es del <b class="neon-gold">{tasa_efectiva:.1f}%</b>, aunque tu tasa marginal en tablas sea del {df_isr_raw['Tasa']*100:.1f}%.</li>
-                <li><b>Proyección Anual:</b> Si mantienes este sueldo, pagarás aprox. <b class="neon-blue">${proyeccion_anual:,.2f}</b> al gobierno este año.</li>
-                <li><b>Eficiencia:</b> De cada $1,000 pesos, te quedas con <b class="neon-green">${(neto/bruto)*1000:,.2f}</b>.</li>
+                <li><b>Día de Libertad Fiscal:</b> En este periodo, trabajas <b class="neon-red">{dias_impuestos:.1f} días</b> solo para pagar impuestos.</li>
+                <li><b>Tasa Efectiva:</b> Realmente pagas el <b class="neon-gold">{tasa_efectiva:.1f}%</b> de tu ingreso bruto total.</li>
+                <li><b>Proyección Anual:</b> Aportarás aprox. <b class="neon-blue">${proyeccion_anual:,.2f}</b> al sistema este año.</li>
+                <li><b>Eficiencia:</b> Te quedas con <b class="neon-green">${(neto/bruto)*1000:,.2f}</b> de cada $1,000 ganados.</li>
             </ul>
         </div>
         """, unsafe_allow_html=True)
-        
-        # Barra de progreso visual
-        st.markdown("###### Carga Fiscal Total (ISR + IMSS)")
-        st.progress(min(tasa_efectiva/100, 1.0))
 
 with tab_isr:
-    st.markdown("##### Auditoría de Cálculo ISR")
+    # Tabla ISR
     data = [
         {"Concepto": "1. Base Mensual", "Monto": df_isr_raw["Base Mensual"]},
         {"Concepto": "2. Límite Inferior", "Monto": df_isr_raw["Límite Inf."]},
@@ -284,7 +282,7 @@ with tab_isr:
     st.dataframe(df_isr, use_container_width=True, hide_index=True)
 
 with tab_imss:
-    st.markdown("##### Cuotas Obreras (Descuentos)")
+    # Tabla IMSS
     df_imss = pd.DataFrame(list(df_imss_raw.items()), columns=["Concepto", "Monto"])
     total = pd.DataFrame([{"Concepto": "TOTAL IMSS", "Monto": imss}])
     df_fin = pd.concat([df_imss, total], ignore_index=True)
