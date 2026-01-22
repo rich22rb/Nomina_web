@@ -6,19 +6,16 @@ from datetime import date
 st.set_page_config(page_title="Sistema de Nómina 2026 (Oficial)", page_icon="🇲🇽", layout="wide")
 
 # --- 1. CONSTANTES LEGALES 2026 ---
-# Fuente: Anexo 8 RMF 2026 y Resolución del H. Consejo de Representantes (CONASAMI)
 VALORES_2026 = {
-    "UMA_DIARIA": 117.31,           # Valor INEGI (Feb 2026)
-    "SALARIO_MINIMO": 315.04,       # Zona General
-    "SALARIO_MINIMO_FN": 440.87,    # Zona Frontera Norte
+    "UMA_DIARIA": 117.31,           
+    "SALARIO_MINIMO": 315.04,       
+    "SALARIO_MINIMO_FN": 440.87,    
     "TOPE_IMSS_UMAS": 25,
     "PRIMA_VACACIONAL": 0.25,
-    "EXENTO_AGUINALDO": 30 * 117.31 # Exención de 30 UMAS
+    "EXENTO_AGUINALDO": 30 * 117.31 
 }
 
 # TABLA ISR MENSUAL 2026 (BASE)
-# Fuente: DOF Anexo 8 (RMF 2026)
-# Límite Inferior | Cuota Fija | % Excedente
 TABLA_MENSUAL_2026 = [
     [0.01,          0.00,       0.0192],
     [844.60,        16.22,      0.0640],
@@ -36,17 +33,13 @@ TABLA_MENSUAL_2026 = [
 # --- 2. MOTOR DE CÁLCULO (FACTOR 30.4) ---
 
 def obtener_tabla_periodica(dias_periodo):
-    """
-    Genera la tabla ISR oficial para cualquier periodo (Semanal/Quincenal/Decenal)
-    usando el factor de ley: (Mensual / 30.4) * DiasPeriodo.
-    Referencia: Regla 3.12.2 RMF
-    """
+    """Genera la tabla ISR oficial para cualquier periodo."""
     factor = dias_periodo / 30.4
     tabla_calculada = []
     for renglon in TABLA_MENSUAL_2026:
         nuevo_limite = renglon[0] * factor
         nueva_cuota = renglon[1] * factor
-        porcentaje = renglon[2] # El % no cambia
+        porcentaje = renglon[2] 
         tabla_calculada.append([nuevo_limite, nueva_cuota, porcentaje])
     return tabla_calculada
 
@@ -68,7 +61,7 @@ def calcular_isr_exacto(base_gravable, tabla_periodica):
         {"Concepto": "1. Base Gravable", "Monto": base_gravable},
         {"Concepto": "2. (-) Límite Inferior", "Monto": limite},
         {"Concepto": "3. (=) Excedente", "Monto": excedente},
-        {"Concepto": "4. (x) Tasa", "Monto": porc}, # Se formatea luego
+        {"Concepto": "4. (x) Tasa", "Monto": porc}, 
         {"Concepto": "5. (=) Impuesto Marginal", "Monto": marginal},
         {"Concepto": "6. (+) Cuota Fija", "Monto": cuota},
         {"Concepto": "7. (=) ISR Determinado", "Monto": isr}
@@ -79,7 +72,6 @@ def calcular_imss_proporcional(sbc, dias_pago):
     uma = VALORES_2026["UMA_DIARIA"]
     exc = max(0, sbc - (3 * uma))
     
-    # Factores de cuotas obreras 2026
     cuotas = {
         "Enf. y Mat. (Exc)": exc * 0.004 * dias_pago,
         "Prest. Dinero": sbc * 0.0025 * dias_pago,
@@ -90,7 +82,6 @@ def calcular_imss_proporcional(sbc, dias_pago):
     return sum(cuotas.values()), cuotas
 
 def obtener_factor_integracion(anios):
-    """Vacaciones Dignas según antigüedad"""
     if anios == 0: dias_vac = 12
     elif anios == 1: dias_vac = 14
     elif anios == 2: dias_vac = 16
@@ -99,7 +90,6 @@ def obtener_factor_integracion(anios):
     elif 5 <= anios <= 9: dias_vac = 22
     else: dias_vac = 24
     
-    # Factor = 1 + (Proporción diaria de Aguinaldo + Prima Vacacional)
     factor = 1 + ((15 + (dias_vac * VALORES_2026["PRIMA_VACACIONAL"])) / 365)
     return factor, dias_vac
 
@@ -136,7 +126,6 @@ if modulo == "Nómina Periódica":
         elif periodo_pago == "Semanal": dias_nom = 7
         
         # B. NORMALIZAR SUELDOS (Para SBC e ISR)
-        # Convertimos todo a diario y luego al periodo
         if tipo_entrada == "Mensual": sueldo_diario = monto / 30.4
         elif tipo_entrada == "Quincenal": sueldo_diario = monto / 15
         elif tipo_entrada == "Semanal": sueldo_diario = monto / 7
@@ -157,8 +146,7 @@ if modulo == "Nómina Periódica":
         # 2. IMSS (Proporcional a los días de pago)
         imss_total, desglose_imss = calcular_imss_proporcional(sbc, dias_nom)
         
-        # 3. ISR (TABLA DINÁMICA OFICIAL) 🧠
-        # Generamos la tabla exacta para 7, 10, 15 o 30.4 días
+        # 3. ISR (TABLA DINÁMICA OFICIAL)
         tabla_oficial_periodo = obtener_tabla_periodica(dias_nom)
         isr_total, desglose_isr = calcular_isr_exacto(sueldo_periodo, tabla_oficial_periodo)
         
@@ -186,8 +174,9 @@ if modulo == "Nómina Periódica":
             st.subheader(f"Tabla ISR Oficial ({periodo_pago})")
             st.markdown("Tabla calculada según Regla 3.12.2 RMF (Factor 30.4).")
             
-            # Formatear la tabla del desglose
-            df_isr = pd.DataFrame(desglose)
+            # --- CORRECCIÓN AQUÍ ---
+            # Usamos la variable correcta: desglose_isr
+            df_isr = pd.DataFrame(desglose_isr)
             def fmt(val):
                 if val < 1 and val > 0: return f"{val*100:.2f}%"
                 return f"${val:,.2f}"
@@ -214,9 +203,8 @@ elif modulo == "Aguinaldo":
         exento = VALORES_2026["EXENTO_AGUINALDO"]
         gravado = max(0, bruto - exento)
         
-        # ISR Reglamento (Aproximación Tasa Efectiva)
-        # Se calcula el ISR de (Mensual + Gravado) menos el ISR de (Mensual)
-        tabla_mensual_oficial = obtener_tabla_periodica(30.4) # Tabla mensual estándar
+        # ISR Reglamento
+        tabla_mensual_oficial = obtener_tabla_periodica(30.4) 
         isr_base, _ = calcular_isr_exacto(mensual, tabla_mensual_oficial)
         isr_con_aguinaldo, _ = calcular_isr_exacto(mensual + gravado, tabla_mensual_oficial)
         isr_retener = isr_con_aguinaldo - isr_base
@@ -247,7 +235,7 @@ elif modulo == "Finiquito/Liquidación":
         
         # Finiquito
         agui_prop = (15/365) * baja.timetuple().tm_yday * sd
-        vac_pend = 6 * sd # Estimado
+        vac_pend = 6 * sd 
         prim_vac = vac_pend * 0.25
         finiquito = agui_prop + vac_pend + prim_vac
         
